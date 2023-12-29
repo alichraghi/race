@@ -1,56 +1,228 @@
 const std = @import("std");
-const core = @import("mach-core");
-const gpu = core.gpu;
 const Model = @import("Model.zig");
-const math = @import("mach").math;
-const Vec2 = math.Vec2;
+const mach = @import("mach");
+const core = mach.core;
+const gpu = mach.gpu;
+const math = mach.math;
+const Engine = mach.Engine;
 const Vec3 = math.Vec3;
-const Mat2x2 = math.Mat2x2;
-const vec2 = math.vec2;
+const Vec4 = math.Vec4;
+const Mat4x4 = math.Mat4x4;
 const vec3 = math.vec3;
-const mat2x2 = math.mat2x2;
+const vec4 = math.vec4;
+const mat4x4 = math.mat4x4;
 
-var id_index: u32 = 0;
+pub const name = .object;
+pub const Mod = mach.Mod(@This());
+pub const components = struct {
+    pub const model = Model;
+    pub const transform = Transform;
+    pub const color = Vec3;
+};
 
-const Object = @This();
+pipeline: *gpu.RenderPipeline,
+uniform_buf: *gpu.Buffer,
+bind_group_layout: *gpu.BindGroupLayout,
+bind_group: *gpu.BindGroup,
+uniform_stride: u32,
 
-id: u32,
-model: Model,
-transform2d: Transform2D,
-color: Vec3,
-
-pub fn init(model: Model) Object {
-    const id = id_index;
-    id_index += 1;
-    return .{
-        .id = id,
-        .model = model,
-        .transform2d = .{},
-        .color = vec3(1, 1, 1),
-    };
+fn ceilToNextMultiple(value: u32, step: u32) u32 {
+    const divide_and_ceil = value / step + @as(u32, if (value % step == 0) 0 else 1);
+    return step * divide_and_ceil;
 }
 
-pub fn render(object: *Object, pass: *gpu.RenderPassEncoder) void {
-    object.model.writeUBO(0, .{
-        .transform = @bitCast(object.transform2d.mat2().v),
-        .offset = object.transform2d.translation.v,
-        .color = object.color.v,
-    });
-    object.model.bind(0, pass);
-    object.model.draw(pass);
-}
+pub const UBO = struct {
+    transform: @Vector(4 * 4, f32) align(16),
+    color: @Vector(3, f32) align(16),
 
-const Transform2D = struct {
-    translation: Vec2 = vec2(0, 0),
-    scale: Vec2 = vec2(1, 1),
+    pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
+        0,
+        .{ .vertex = true, .fragment = true },
+        .uniform,
+        true,
+        0,
+    );
+};
+
+pub const local = struct {
+    pub fn init(object: *Mod) !void {
+        const shader_module = core.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
+        defer shader_module.release();
+
+        const blend = gpu.BlendState{};
+        const color_target = gpu.ColorTargetState{
+            .format = core.descriptor.format,
+            .blend = &blend,
+            .write_mask = gpu.ColorWriteMaskFlags.all,
+        };
+        const fragment = gpu.FragmentState.init(.{
+            .module = shader_module,
+            .entry_point = "frag_main",
+            .targets = &.{color_target},
+        });
+
+        var limits = gpu.SupportedLimits{};
+        _ = core.device.getLimits(&limits);
+        const uniform_stride = ceilToNextMultiple(
+            @sizeOf(UBO),
+            limits.limits.min_uniform_buffer_offset_alignment,
+        );
+
+        const objects_count = 10000; // TODO: INDEX
+        const uniform_buf = core.device.createBuffer(&.{
+            .usage = .{ .uniform = true, .copy_dst = true },
+            .size = objects_count * uniform_stride,
+            .mapped_at_creation = .false,
+        });
+
+        const bind_group_layout = core.device.createBindGroupLayout(
+            &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{UBO.bind_group_layout_entry} }),
+        );
+        const bind_group = core.device.createBindGroup(
+            &gpu.BindGroup.Descriptor.init(.{
+                .layout = bind_group_layout,
+                .entries = &.{
+                    gpu.BindGroup.Entry.buffer(0, uniform_buf, 0, uniform_stride),
+                },
+            }),
+        );
+
+        const pipeline_layout = core.device.createPipelineLayout(
+            &gpu.PipelineLayout.Descriptor.init(.{ .bind_group_layouts = &.{bind_group_layout} }),
+        );
+        const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
+            .layout = pipeline_layout,
+            .fragment = &fragment,
+            .vertex = gpu.VertexState.init(.{
+                .module = shader_module,
+                .entry_point = "vertex_main",
+                .buffers = &.{Model.Vertex.layout},
+            }),
+            .primitive = .{},
+        };
+        const pipeline = core.device.createRenderPipeline(&pipeline_descriptor);
+
+        object.state = .{
+            .pipeline = pipeline,
+            .uniform_buf = uniform_buf,
+            .bind_group_layout = bind_group_layout,
+            .bind_group = bind_group,
+            .uniform_stride = uniform_stride,
+        };
+    }
+
+    pub fn deinit(object: *Mod) !void {
+        object.state.bind_group_layout.release();
+        object.state.bind_group.release();
+        object.state.uniform_buf.release();
+    }
+
+    pub fn render(engine: *Engine.Mod, object: *Mod) !void {
+        engine.state.pass.setPipeline(object.state.pipeline);
+
+        var archetypes_iter = engine.entities.query(.{ .all = &.{
+            .{ .object = &.{
+                .model,
+                .transform,
+                .color,
+            } },
+        } });
+
+        while (archetypes_iter.next()) |archetype| {
+            for (
+                archetype.slice(.object, .model),
+                archetype.slice(.object, .transform),
+                archetype.slice(.object, .color),
+                0..,
+            ) |model, transform, color, i| {
+                engine.state.pass.setViewport(
+                    0,
+                    0,
+                    @floatFromInt(core.descriptor.width),
+                    @floatFromInt(core.descriptor.height),
+                    0.0,
+                    1.0,
+                );
+                engine.state.pass.setScissorRect(0, 0, core.descriptor.width, core.descriptor.height);
+
+                const buffer_offset = @as(u32, @intCast(i)) * object.state.uniform_stride;
+                core.queue.writeBuffer(
+                    object.state.uniform_buf,
+                    buffer_offset,
+                    &[_]UBO{.{ .transform = @bitCast(transform.mat().v), .color = color.v }},
+                );
+                model.bind(engine.state.pass);
+                engine.state.pass.setBindGroup(0, object.state.bind_group, &.{buffer_offset});
+                model.draw(engine.state.pass);
+            }
+        }
+    }
+};
+
+const Transform = struct {
+    translation: Vec3 = vec3(0, 0, 0),
+    scale: Vec3 = vec3(1, 1, 1),
     /// in radians
-    rotation: f32 = 0,
+    rotation: Vec3 = vec3(0, 0, 0),
 
-    pub fn mat2(transform: Transform2D) Mat2x2 {
-        const rot_sin = @sin(transform.rotation);
-        const rot_cos = @cos(transform.rotation);
-        const rot = mat2x2(&vec2(rot_cos, rot_sin), &vec2(-rot_sin, rot_cos));
-        const scale = mat2x2(&vec2(transform.scale.x(), 0), &vec2(0, transform.scale.y()));
-        return rot.mul(&scale);
+    pub fn mat(transform: Transform) Mat4x4 {
+        return Mat4x4.scale(transform.scale)
+            .mul(&Mat4x4.rotateZ(transform.rotation.z()))
+            .mul(&Mat4x4.rotateY(transform.rotation.y()))
+            .mul(&Mat4x4.rotateX(transform.rotation.x()))
+        // .mul(&quaternionToMat(eulerAngleToQuaternion(transform.rotation)))
+            .mul(&Mat4x4.translate(transform.translation));
+    }
+
+    fn axis_angle_to_quat(axis: Vec3, angle: f32) Vec4 {
+        const s = @sin(angle / 2);
+        return vec4(
+            axis.x() * s,
+            axis.y() * s,
+            axis.z() * s,
+            @cos(angle / 2),
+        );
+    }
+
+    fn eulerAngleToQuaternion(e: Vec3) Vec4 {
+        const cx = @cos(e.x() / 2);
+        const sx = @sin(e.x() / 2);
+        const cy = @cos(e.y() / 2);
+        const sy = @sin(e.y() / 2);
+        const cz = @cos(e.z() / 2);
+        const sz = @sin(e.z() / 2);
+        return vec4(
+            sx * cy * cz - cx * sy * sz,
+            cx * sy * cz + sx * cy * sz,
+            cx * cy * sz - sx * sy * cz,
+            cx * cy * cz + sx * sy * sz,
+        );
+    }
+
+    fn quaternionToMat(q: Vec4) Mat4x4 {
+        const xx = q.x() * q.x();
+        const yy = q.y() * q.y();
+        const zz = q.z() * q.z();
+        return mat4x4(
+            &vec4(
+                1 - 2 * yy - 2 * zz,
+                2 * q.x() * q.y() + 2 * q.z() * q.w(),
+                2 * q.x() * q.z() - 2 * q.y() * q.w(),
+                0,
+            ),
+            &vec4(
+                2 * q.x() * q.y() - 2 * q.z() * q.w(),
+                1 - 2 * xx - 2 * zz,
+                2 * q.y() * q.z() + 2 * q.x() * q.w(),
+                0,
+            ),
+            &vec4(
+                2 * q.x() * q.z() + 2 * q.y() * q.w(),
+                2 * q.y() * q.z() - 2 * q.x() * q.w(),
+                1 - 2 * xx - 2 * yy,
+                0,
+            ),
+            &vec4(0, 0, 0, 1),
+        );
     }
 };

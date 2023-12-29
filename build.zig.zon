@@ -8,14 +8,18 @@
         "README.md",
     },
     .dependencies = .{
-        .mach_core = .{
-            .url = "https://pkg.machengine.org/mach-core/cce02fb96ca787378289c5855b381f0ca9f3e090.tar.gz",
-            .hash = "122096b39d9266d275b780df4d63b1afe6e9a3726f19766baf74b34af3f092532cd3",
-        },
+        // .mach_core = .{
+        //     .url = "https://pkg.machengine.org/mach-core/cce02fb96ca787378289c5855b381f0ca9f3e090.tar.gz",
+        //     .hash = "122096b39d9266d275b780df4d63b1afe6e9a3726f19766baf74b34af3f092532cd3",
+        // },
         .mach = .{
-            .path = "../mach",
-            // .url = "https://pkg.machengine.org/mach/260802f7771c651246930455dfd7de7a75c9869a.tar.gz",
-            // .hash = "1220a2351f6f6f261a9a1f7c17a412acc77bdaa2204daabb0b0dde03f768981a0044",
+            // .path = "../mach",
+            .url = "https://pkg.machengine.org/mach/260802f7771c651246930455dfd7de7a75c9869a.tar.gz",
+            .hash = "1220a2351f6f6f261a9a1f7c17a412acc77bdaa2204daabb0b0dde03f768981a0044",
+        },
+        .mach_freetype = .{
+            .url = "https://pkg.machengine.org/mach-freetype/a6d971285dfe731e49f82e81c81da2b7f5c6a442.tar.gz",
+            .hash = "1220e0de43cacb583b8f9efddcbe359398cfca17a39e265b56c8f2a10314eb8f7a5f",
         },
     },
 }
