@@ -1,5 +1,6 @@
 const std = @import("std");
 const Model = @import("Model.zig");
+const Camera = @import("Camera.zig");
 const mach = @import("mach");
 const core = mach.core;
 const gpu = mach.gpu;
@@ -32,8 +33,9 @@ fn ceilToNextMultiple(value: u32, step: u32) u32 {
 }
 
 pub const UBO = struct {
-    transform: @Vector(4 * 4, f32) align(16),
-    color: @Vector(3, f32) align(16),
+    projection: @Vector(16, f32),
+    view: @Vector(16, f32),
+    model: @Vector(16, f32),
 
     pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
         0,
@@ -99,6 +101,11 @@ pub const local = struct {
                 .buffers = &.{Model.Vertex.layout},
             }),
             .primitive = .{},
+            .depth_stencil = &.{
+                .format = .depth24_plus,
+                .depth_write_enabled = .true,
+                .depth_compare = .less,
+            },
         };
         const pipeline = core.device.createRenderPipeline(&pipeline_descriptor);
 
@@ -117,7 +124,7 @@ pub const local = struct {
         object.state.uniform_buf.release();
     }
 
-    pub fn render(engine: *Engine.Mod, object: *Mod) !void {
+    pub fn render(engine: *Engine.Mod, object: *Mod, camera_mod: *Camera.Mod, camera: mach.ecs.EntityID) !void {
         engine.state.pass.setPipeline(object.state.pipeline);
 
         var archetypes_iter = engine.entities.query(.{ .all = &.{
@@ -132,9 +139,8 @@ pub const local = struct {
             for (
                 archetype.slice(.object, .model),
                 archetype.slice(.object, .transform),
-                archetype.slice(.object, .color),
                 0..,
-            ) |model, transform, color, i| {
+            ) |model, transform, i| {
                 engine.state.pass.setViewport(
                     0,
                     0,
@@ -149,7 +155,11 @@ pub const local = struct {
                 core.queue.writeBuffer(
                     object.state.uniform_buf,
                     buffer_offset,
-                    &[_]UBO{.{ .transform = @bitCast(transform.mat().v), .color = color.v }},
+                    &[_]UBO{.{
+                        .projection = @bitCast(camera_mod.get(camera, .projection).?.v),
+                        .view = @bitCast(camera_mod.get(camera, .view).?.v),
+                        .model = @bitCast(transform.mat().v),
+                    }},
                 );
                 model.bind(engine.state.pass);
                 engine.state.pass.setBindGroup(0, object.state.bind_group, &.{buffer_offset});
@@ -161,17 +171,50 @@ pub const local = struct {
 
 const Transform = struct {
     translation: Vec3 = vec3(0, 0, 0),
-    scale: Vec3 = vec3(1, 1, 1),
+    scale: Vec3 = vec3(0.3, 0.3, 0.3),
     /// in radians
     rotation: Vec3 = vec3(0, 0, 0),
 
     pub fn mat(transform: Transform) Mat4x4 {
-        return Mat4x4.scale(transform.scale)
-            .mul(&Mat4x4.rotateZ(transform.rotation.z()))
-            .mul(&Mat4x4.rotateY(transform.rotation.y()))
-            .mul(&Mat4x4.rotateX(transform.rotation.x()))
-        // .mul(&quaternionToMat(eulerAngleToQuaternion(transform.rotation)))
-            .mul(&Mat4x4.translate(transform.translation));
+        // return Mat4x4.scale(transform.scale)
+        // // .mul(&Mat4x4.rotateZ(transform.rotation.z()))
+        // // .mul(&Mat4x4.rotateY(transform.rotation.y()))
+        // // .mul(&Mat4x4.rotateX(transform.rotation.x()))
+        //     .mul(&quaternionToMat(eulerAngleToQuaternion(transform.rotation)))
+        //     .mul(&Mat4x4.translate(transform.translation));
+
+        const c3 = @cos(transform.rotation.z());
+        const s3 = @sin(transform.rotation.z());
+        const c2 = @cos(transform.rotation.x());
+        const s2 = @sin(transform.rotation.x());
+        const c1 = @cos(transform.rotation.y());
+        const s1 = @sin(transform.rotation.y());
+        return mat4x4(
+            &vec4(
+                transform.scale.x() * (c1 * c3 + s1 * s2 * s3),
+                transform.scale.x() * (c2 * s3),
+                transform.scale.x() * (c1 * s2 * s3 - c3 * s1),
+                0.0,
+            ),
+            &vec4(
+                transform.scale.y() * (c3 * s1 * s2 - c1 * s3),
+                transform.scale.y() * (c2 * c3),
+                transform.scale.y() * (c1 * c3 * s2 + s1 * s3),
+                0.0,
+            ),
+            &vec4(
+                transform.scale.z() * (c2 * s1),
+                transform.scale.z() * (-s2),
+                transform.scale.z() * (c1 * c2),
+                0.0,
+            ),
+            &vec4(
+                transform.translation.x(),
+                transform.translation.y(),
+                transform.translation.z(),
+                1.0,
+            ),
+        );
     }
 
     fn axis_angle_to_quat(axis: Vec3, angle: f32) Vec4 {
