@@ -4,9 +4,15 @@ const core = mach.core;
 const Engine = mach.Engine;
 const gpu = core.gpu;
 const zm = @import("zmath.zig");
+const math = mach.math;
 const Vec = zm.Vec;
 const Mat = zm.Mat;
 const Quat = zm.Quat;
+const vec4 = math.vec4;
+const Vec3 = math.Vec3;
+const vec3 = math.vec3;
+const mat4x4 = math.mat4x4;
+const Mat4x4 = math.Mat4x4;
 
 pub const name = .game;
 pub const Mod = mach.Mod(@This());
@@ -23,8 +29,8 @@ keys: u8,
 
 pub fn init(engine: *mach.Engine.Mod, game: *Mod) !void {
     _ = engine;
-    const eye = Vec{ 5.0, 7.0, 5.0, 0.0 };
-    const target = Vec{ 0.0, 0.0, 0.0, 0.0 };
+    const eye = vec3(5.0, 7.0, 5.0);
+    const target = vec3(0.0, 0.0, 0.0);
 
     const framebuffer = core.descriptor;
     const aspect_ratio = @as(f32, @floatFromInt(framebuffer.width)) / @as(f32, @floatFromInt(framebuffer.height));
@@ -39,7 +45,7 @@ pub fn init(engine: *mach.Engine.Mod, game: *Mod) !void {
             core.device,
             eye,
             target,
-            zm.Vec{ 0.0, 1.0, 0.0, 0.0 },
+            vec3(0.0, 1.0, 0.0),
             aspect_ratio,
             45.0,
             0.1,
@@ -108,22 +114,23 @@ pub fn tick(engine: *Engine.Mod, game: *Mod) !void {
     }
 
     // move camera
-    const speed = zm.Vec{ delta_time * 5, delta_time * 5, delta_time * 5, delta_time * 5 };
-    const fwd = zm.normalize3(game.state.camera.target - game.state.camera.eye);
-    const right = zm.normalize3(zm.cross3(fwd, game.state.camera.up));
+    const speed = Vec3.splat(delta_time * 5);
+    const fwd = Camera.normalize(game.state.camera.target.sub(&game.state.camera.eye));
+    const right = Camera.normalize(fwd.cross(&game.state.camera.up));
 
-    if (game.state.keys & Dir.up != 0)
-        game.state.camera.eye += fwd * speed;
+    if (game.state.keys & Dir.up != 0) {
+        game.state.camera.eye.v += fwd.mul(&speed).v;
+    } else if (game.state.keys & Dir.down != 0) {
+        game.state.camera.eye.v -= fwd.mul(&speed).v;
+    }
 
-    if (game.state.keys & Dir.down != 0)
-        game.state.camera.eye -= fwd * speed;
-
-    if (game.state.keys & Dir.right != 0)
-        game.state.camera.eye += right * speed
-    else if (game.state.keys & Dir.left != 0)
-        game.state.camera.eye -= right * speed
-    else
-        game.state.camera.eye += right * (speed * @Vector(4, f32){ 0.5, 0.5, 0.5, 0.5 });
+    if (game.state.keys & Dir.right != 0) {
+        game.state.camera.eye.v += right.mul(&speed).v;
+    } else if (game.state.keys & Dir.left != 0) {
+        game.state.camera.eye.v -= right.mul(&speed).v;
+    } else {
+        game.state.camera.eye.v += right.mul(&speed.mulScalar(0.5)).v;
+    }
 
     game.state.camera.update(core.queue);
 
@@ -185,9 +192,9 @@ const Dir = struct {
 };
 
 const Camera = struct {
-    eye: Vec,
-    target: Vec,
-    up: Vec,
+    eye: Vec3,
+    target: Vec3,
+    up: Vec3,
     aspect: f32,
     fovy: f32,
     near: f32,
@@ -196,11 +203,11 @@ const Camera = struct {
     buffer: Buffer,
 
     const Uniform = extern struct {
-        pos: Vec,
-        mat: Mat,
+        pos: Vec3,
+        proj: Mat4x4 align(16),
     };
 
-    fn init(device: *gpu.Device, eye: Vec, target: Vec, up: Vec, aspect: f32, fovy: f32, near: f32, far: f32) Camera {
+    fn init(device: *gpu.Device, eye: Vec3, target: Vec3, up: Vec3, aspect: f32, fovy: f32, near: f32, far: f32) Camera {
         var camera: Camera = .{
             .eye = eye,
             .target = target,
@@ -213,11 +220,10 @@ const Camera = struct {
             .bind_group = undefined,
         };
 
-        const view = camera.buildViewProjMatrix();
-
+        const proj = camera.buildViewProjMatrix();
         const uniform = Uniform{
             .pos = camera.eye,
-            .mat = view,
+            .proj = proj,
         };
 
         const buffer = .{
@@ -246,19 +252,47 @@ const Camera = struct {
     }
 
     fn update(camera: *Camera, queue: *gpu.Queue) void {
-        const mat = camera.buildViewProjMatrix();
+        const proj = camera.buildViewProjMatrix();
         const uniform = .{
             .pos = camera.eye,
-            .mat = mat,
+            .proj = proj,
         };
 
         queue.writeBuffer(camera.buffer.buffer, 0, &[_]Uniform{uniform});
     }
 
-    inline fn buildViewProjMatrix(s: *const Camera) Mat {
-        const view = zm.lookAtRh(s.eye, s.target, s.up);
-        const proj = zm.perspectiveFovRh(s.fovy, s.aspect, s.near, s.far);
-        return zm.mul(view, proj);
+    fn normalize(v: Vec3) Vec3 {
+        return v.mulScalar(1 / v.len());
+    }
+
+    fn lookAtRh(eye: Vec3, dir: Vec3, up: Vec3) Mat4x4 {
+        const az = normalize(eye.sub(&dir));
+        const ax = normalize(up.cross(&az));
+        const ay = normalize(az.cross(&ax));
+        return mat4x4(
+            &vec4(ax.x(), ax.y(), ax.z(), -ax.dot(&eye.sub(&dir))),
+            &vec4(ay.x(), ay.y(), ay.z(), -ay.dot(&eye.sub(&dir))),
+            &vec4(az.x(), az.y(), az.z(), -az.dot(&eye.sub(&dir))),
+            &vec4(0.0, 0.0, 0.0, 1.0),
+        );
+    }
+
+    pub fn perspectiveFovRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat4x4 {
+        const h = 1 / @tan(0.5 * fovy);
+        const w = h / aspect;
+        const r = far / (near - far);
+        return mat4x4(
+            &vec4(w, 0.0, 0.0, 0.0),
+            &vec4(0.0, h, 0.0, 0.0),
+            &vec4(0.0, 0.0, r, r * near),
+            &vec4(0.0, 0.0, -1, 0.0),
+        );
+    }
+
+    inline fn buildViewProjMatrix(s: *const Camera) Mat4x4 {
+        const view = lookAtRh(s.eye, s.target, s.up);
+        const proj = perspectiveFovRh(s.fovy, s.aspect, s.near, s.far);
+        return proj.mul(&view);
     }
 
     inline fn bindGroupLayout(device: *gpu.Device) *gpu.BindGroupLayout {

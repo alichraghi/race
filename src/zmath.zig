@@ -18,7 +18,7 @@ pub inline fn abs(v: anytype) @TypeOf(v) {
     return @abs(v);
 }
 
-inline fn dot3(v0: Vec, v1: Vec) Vec {
+pub inline fn dot3(v0: Vec, v1: Vec) Vec {
     const dot = v0 * v1;
     return @splat(dot[0] + dot[1] + dot[2]);
 }
@@ -730,7 +730,7 @@ fn mulMat(m0: Mat, m1: Mat) Mat {
     }
     return result;
 }
-fn lookToLh(eyepos: Vec, eyedir: Vec, updir: Vec) Mat {
+pub fn lookToLh(eyepos: Vec, eyedir: Vec, updir: Vec) Mat {
     const az = normalize3(eyedir);
     const ax = normalize3(cross3(updir, az));
     const ay = normalize3(cross3(az, ax));
