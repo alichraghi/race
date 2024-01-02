@@ -46,7 +46,7 @@ pub const UBO = struct {
 };
 
 pub const local = struct {
-    pub fn init(object: *Mod) !void {
+    pub fn init(object: *Mod, objects_capacity: u32) !void {
         const shader_module = core.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
         defer shader_module.release();
 
@@ -69,10 +69,9 @@ pub const local = struct {
             limits.limits.min_uniform_buffer_offset_alignment,
         );
 
-        const objects_count = 10000; // TODO: INDEX
         const uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = objects_count * uniform_stride,
+            .size = objects_capacity * uniform_stride,
             .mapped_at_creation = .false,
         });
 

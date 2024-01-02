@@ -30,9 +30,7 @@ camera_front: Vec3,
 pub const name = .game;
 pub const Mod = mach.Mod(@This());
 
-pub fn init(engine: *Engine.Mod, object: *Object.Mod, game: *Mod) !void {
-    _ = engine;
-
+pub fn init(game: *Mod, object: *Object.Mod) !void {
     core.setCursorMode(.disabled);
 
     // Depth Texture
@@ -55,7 +53,7 @@ pub fn init(engine: *Engine.Mod, object: *Object.Mod, game: *Mod) !void {
     });
 
     // Game objects
-    try object.send(.init, .{});
+    try object.send(.init, .{10});
 
     const plane = try object.newEntity();
     const plane_model = Model.init(&mesh.cube);
@@ -94,11 +92,13 @@ pub fn init(engine: *Engine.Mod, object: *Object.Mod, game: *Mod) !void {
     };
 }
 
-pub fn deinit(game: *Mod) !void {
-    _ = game;
+pub fn deinit(game: *Mod, object: *Object.Mod) !void {
+    try object.send(.deinit, .{});
+    game.state.depth_texture.release();
+    game.state.depth_view.release();
 }
 
-pub fn tick(engine: *Engine.Mod, object: *Object.Mod, game: *Mod) !void {
+pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod) !void {
     try game.send(.processEvents, .{});
 
     { // Camera
@@ -144,7 +144,7 @@ pub fn tick(engine: *Engine.Mod, object: *Object.Mod, game: *Mod) !void {
 }
 
 pub const local = struct {
-    pub fn processEvents(engine: *Engine.Mod, game: *Mod) !void {
+    pub fn processEvents(game: *Mod, engine: *Engine.Mod) !void {
         var iter = core.pollEvents();
         while (iter.next()) |event| {
             switch (event) {
