@@ -3,7 +3,6 @@ const mach = @import("mach");
 const core = mach.core;
 const Engine = mach.Engine;
 const gpu = core.gpu;
-const zm = @import("zmath.zig");
 const Model = @import("Model.zig");
 const Camera = @import("Camera.zig");
 const math = mach.math;
@@ -175,21 +174,12 @@ pub const Transform = struct {
     /// in radians
     rotation: Vec3 = vec3(0, 0, 0),
 
-    pub fn mat(transform: Transform) zm.Mat {
-        const trans = zm.translation(
-            transform.translation.x(),
-            transform.translation.y(),
-            transform.translation.z(),
-        );
-        const scale = zm.scaling(transform.scale.x(), transform.scale.y(), transform.scale.z());
-        const rot = zm.mul(
-            zm.mul(
-                zm.rotationX(transform.rotation.x()),
-                zm.rotationY(transform.rotation.y()),
-            ),
-            zm.rotationZ(transform.rotation.z()),
-        );
-        const model = zm.mul(zm.mul(scale, rot), trans);
-        return model;
+    pub fn mat(transform: Transform) Mat4x4 {
+        const translation = Mat4x4.translate(transform.translation);
+        const scale = Mat4x4.scale(transform.scale);
+        const rotation = Mat4x4.rotateX(transform.rotation.x())
+            .mul(&Mat4x4.rotateY(transform.rotation.y()))
+            .mul(&Mat4x4.rotateZ(transform.rotation.z()));
+        return translation.mul(&rotation.mul(&scale));
     }
 };
