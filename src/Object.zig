@@ -98,7 +98,7 @@ pub const local = struct {
                 .entry_point = "vertex_main",
                 .buffers = &.{Model.Vertex.layout},
             }),
-            .primitive = .{ .cull_mode = .back },
+            .primitive = .{},
             .depth_stencil = &.{
                 .format = .depth24_plus,
                 .depth_write_enabled = .true,

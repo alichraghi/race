@@ -56,7 +56,7 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
     try object.send(.init, .{10});
 
     const plane = try object.newEntity();
-    const plane_model = Model.init(&mesh.cube);
+    const plane_model = Model.init(&mesh.cube, &mesh.cube_indices);
     try object.set(plane, .model, plane_model);
     try object.set(plane, .transform, .{
         .translation = vec3(0, -1, 0),
@@ -65,7 +65,7 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
     try object.set(plane, .color, vec3(1, 1, 1));
 
     const cube = try object.newEntity();
-    const cube_model = Model.init(&mesh.cube);
+    const cube_model = Model.init(&mesh.cube, &mesh.cube_indices);
     try object.set(cube, .model, cube_model);
     try object.set(cube, .transform, .{});
     try object.set(cube, .color, vec3(1, 1, 1));
