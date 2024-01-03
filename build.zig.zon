@@ -21,5 +21,9 @@
             .url = "https://pkg.machengine.org/mach-freetype/a6d971285dfe731e49f82e81c81da2b7f5c6a442.tar.gz",
             .hash = "1220e0de43cacb583b8f9efddcbe359398cfca17a39e265b56c8f2a10314eb8f7a5f",
         },
+        .model3d = .{
+            .url = "https://pkg.machengine.org/mach-model3d/8d94416c815e9f151806e87b9daa54111a7d6d39.tar.gz",
+            .hash = "1220d4b32bf9d74efb498a939b81b5f1c77bea213a346b88d06ae079836d2dc84aff",
+        },
     },
 }

@@ -35,6 +35,7 @@ pub const UBO = struct {
     projection: @Vector(16, f32),
     view: @Vector(16, f32),
     model: @Vector(16, f32),
+    normal: @Vector(16, f32),
 
     pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
         0,
@@ -157,6 +158,7 @@ pub const local = struct {
                         .projection = @bitCast(camera.projection),
                         .view = @bitCast(camera.view),
                         .model = @bitCast(transform.mat()),
+                        .normal = undefined, // TODO
                     }},
                 );
                 model.bind(engine.state.pass);

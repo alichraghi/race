@@ -5,17 +5,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // const mach_dep = b.dependency("mach", .{ .target = target, .optimize = optimize });
-    // const mach_core_dep = b.dependency("mach_core", .{ .target = target, .optimize = optimize });
-    // const app = try mach_core.App.init(b, mach_core_dep.builder, .{
-    //     .name = "myapp",
-    //     .src = "src/main.zig",
-    //     .target = target,
-    //     .optimize = optimize,
-    //     .deps = &[_]std.build.ModuleDependency{
-    //         .{ .name = "mach", .module = mach_dep.module("mach") },
-    //     },
-    // });
+    const model3d_dep = b.dependency("model3d", .{ .target = target, .optimize = optimize });
 
     const app = try mach.App.init(
         b,
@@ -24,9 +14,13 @@ pub fn build(b: *std.Build) !void {
             .src = "src/main.zig",
             .target = target,
             .optimize = optimize,
-            .deps = &.{},
+            .deps = &.{
+                .{ .name = "model3d", .module = model3d_dep.module("mach-model3d") },
+            },
+            .res_dirs = &.{"assets"},
         },
     );
+    app.compile.linkLibrary(model3d_dep.artifact("mach-model3d"));
     try app.link();
     if (b.args) |args| app.run.addArgs(args);
 

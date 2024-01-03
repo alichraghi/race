@@ -4,6 +4,7 @@ struct UBO {
     projection: mat4x4<f32>,
     view: mat4x4<f32>,
     model: mat4x4<f32>,
+    normal: mat4x4<f32>,
 };
 
 struct Output {
@@ -12,7 +13,12 @@ struct Output {
 };
         
 @vertex
-fn vertex_main(@location(0) pos: vec3<f32>, @location(1) color: vec3<f32>) -> Output {
+fn vertex_main(
+    @location(0) pos: vec3<f32>,
+    @location(1) color: vec3<f32>, 
+    @location(2) normal: vec3<f32>, 
+    @location(3) uv: vec2<f32>
+) -> Output {
     var output: Output;
     output.pos = ubo.projection * ubo.view * ubo.model * vec4(pos, 1);
     output.color = color;

@@ -16,7 +16,7 @@ timer: core.Timer,
 depth_texture: *gpu.Texture,
 depth_view: *gpu.TextureView,
 
-cube: mach.ecs.EntityID,
+dragon: mach.ecs.EntityID,
 plane: mach.ecs.EntityID,
 
 prev_mouse_pos: Vec3,
@@ -29,6 +29,9 @@ camera_front: Vec3,
 
 pub const name = .game;
 pub const Mod = mach.Mod(@This());
+
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
 
 pub fn init(game: *Mod, object: *Object.Mod) !void {
     core.setCursorMode(.disabled);
@@ -64,11 +67,16 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
     });
     try object.set(plane, .color, vec3(1, 1, 1));
 
-    const cube = try object.newEntity();
-    const cube_model = Model.init(&mesh.cube, &mesh.cube_indices);
-    try object.set(cube, .model, cube_model);
-    try object.set(cube, .transform, .{});
-    try object.set(cube, .color, vec3(1, 1, 1));
+    const dragon_m3d = try std.fs.cwd().openFile("assets/dragon.m3d", .{});
+    defer dragon_m3d.close();
+    const dragon_data = try dragon_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
+    defer allocator.free(dragon_data);
+
+    const dragon = try object.newEntity();
+    const dragon_model = try Model.initFromM3D(allocator, dragon_data);
+    try object.set(dragon, .model, dragon_model);
+    try object.set(dragon, .transform, .{});
+    try object.set(dragon, .color, vec3(1, 1, 1));
 
     // Camera
     const camera = Camera.init();
@@ -81,7 +89,7 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
         .timer = try core.Timer.start(),
         .depth_texture = depth_texture,
         .depth_view = depth_view,
-        .cube = cube,
+        .dragon = dragon,
         .plane = plane,
         .camera = camera,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
@@ -96,6 +104,7 @@ pub fn deinit(game: *Mod, object: *Object.Mod) !void {
     try object.send(.deinit, .{});
     game.state.depth_texture.release();
     game.state.depth_view.release();
+    _ = gpa.deinit();
 }
 
 pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod) !void {
@@ -134,8 +143,9 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod) !void {
         .depth_store_op = .store,
     } });
 
-    try object.set(game.state.cube, .transform, .{
-        .rotation = vec3(0, object.get(game.state.cube, .transform).?.rotation.y() + 0.01, 0),
+    try object.set(game.state.dragon, .transform, .{
+        .rotation = vec3(0, object.get(game.state.dragon, .transform).?.rotation.y() + 0.01, 0),
+        .scale = vec3(0.01, 0.01, 0.01),
     });
     try object.send(.render, .{game.state.camera});
 
