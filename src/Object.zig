@@ -18,29 +18,62 @@ const mat4x4 = math.mat4x4;
 pub const name = .object;
 pub const Mod = mach.Mod(@This());
 
+const max_lights = 10;
+
 pub const components = struct {
     pub const model = Model;
     pub const transform = Transform;
-    pub const color = Vec3;
 };
 
 pipeline: *gpu.RenderPipeline,
-uniform_buf: *gpu.Buffer,
 bind_group_layout: *gpu.BindGroupLayout,
 bind_group: *gpu.BindGroup,
-uniform_stride: u32,
 
-pub const UBO = extern struct {
+camera_uniform_buf: *gpu.Buffer,
+light_uniform_buf: *gpu.Buffer,
+model_uniform_buf: *gpu.Buffer,
+camera_uniform_stride: u32,
+light_uniform_stride: u32,
+model_uniform_stride: u32,
+
+pub const CameraUniform = struct {
     projection: Mat4x4,
     view: Mat4x4,
-    model: Mat4x4,
-    normal: Mat3x3,
-    ambient_light_color: Vec4,
-    light_position: Vec3,
-    light_color: Vec4,
 
     pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
         0,
+        .{ .vertex = true, .fragment = true },
+        .uniform,
+        true,
+        0,
+    );
+};
+
+pub const LightObject = struct {
+    position: Vec3,
+    color: Vec4,
+};
+
+pub const LightUniform = struct {
+    ambient_color: Vec4,
+    lights: [max_lights]LightObject,
+    len: u32,
+
+    pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
+        1,
+        .{ .vertex = true, .fragment = true },
+        .uniform,
+        true,
+        0,
+    );
+};
+
+pub const ModelUniform = struct {
+    model: Mat4x4,
+    normal: Mat3x3,
+
+    pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
+        2,
         .{ .vertex = true, .fragment = true },
         .uniform,
         true,
@@ -67,25 +100,51 @@ pub const local = struct {
 
         var limits = gpu.SupportedLimits{};
         _ = core.device.getLimits(&limits);
-        const uniform_stride = math.ceilToNextMultiple(
-            @sizeOf(UBO),
+
+        const camera_uniform_stride = math.ceilToNextMultiple(
+            @sizeOf(CameraUniform),
             limits.limits.min_uniform_buffer_offset_alignment,
         );
-
-        const uniform_buf = core.device.createBuffer(&.{
+        const camera_uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = objects_capacity * uniform_stride,
+            .size = objects_capacity * camera_uniform_stride,
+            .mapped_at_creation = .false,
+        });
+
+        const light_uniform_stride = math.ceilToNextMultiple(
+            @sizeOf(LightUniform),
+            limits.limits.min_uniform_buffer_offset_alignment,
+        );
+        const light_uniform_buf = core.device.createBuffer(&.{
+            .usage = .{ .uniform = true, .copy_dst = true },
+            .size = objects_capacity * light_uniform_stride,
+            .mapped_at_creation = .false,
+        });
+
+        const model_uniform_stride = math.ceilToNextMultiple(
+            @sizeOf(ModelUniform),
+            limits.limits.min_uniform_buffer_offset_alignment,
+        );
+        const model_uniform_buf = core.device.createBuffer(&.{
+            .usage = .{ .uniform = true, .copy_dst = true },
+            .size = objects_capacity * model_uniform_stride,
             .mapped_at_creation = .false,
         });
 
         const bind_group_layout = core.device.createBindGroupLayout(
-            &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{UBO.bind_group_layout_entry} }),
+            &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
+                CameraUniform.bind_group_layout_entry,
+                LightUniform.bind_group_layout_entry,
+                ModelUniform.bind_group_layout_entry,
+            } }),
         );
         const bind_group = core.device.createBindGroup(
             &gpu.BindGroup.Descriptor.init(.{
                 .layout = bind_group_layout,
                 .entries = &.{
-                    gpu.BindGroup.Entry.buffer(0, uniform_buf, 0, uniform_stride),
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_stride),
+                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
+                    gpu.BindGroup.Entry.buffer(2, model_uniform_buf, 0, model_uniform_stride),
                 },
             }),
         );
@@ -112,65 +171,80 @@ pub const local = struct {
 
         object.state = .{
             .pipeline = pipeline,
-            .uniform_buf = uniform_buf,
+            .camera_uniform_buf = camera_uniform_buf,
+            .light_uniform_buf = light_uniform_buf,
+            .model_uniform_buf = model_uniform_buf,
             .bind_group_layout = bind_group_layout,
             .bind_group = bind_group,
-            .uniform_stride = uniform_stride,
+            .camera_uniform_stride = camera_uniform_stride,
+            .light_uniform_stride = light_uniform_stride,
+            .model_uniform_stride = model_uniform_stride,
         };
     }
 
     pub fn deinit(object: *Mod) !void {
         object.state.bind_group_layout.release();
         object.state.bind_group.release();
-        object.state.uniform_buf.release();
+        object.state.camera_uniform_buf.release();
+        object.state.light_uniform_buf.release();
+        object.state.model_uniform_buf.release();
     }
 
     pub fn render(engine: *Engine.Mod, object: *Mod, camera: Camera) !void {
         engine.state.pass.setPipeline(object.state.pipeline);
 
-        var archetypes_iter = engine.entities.query(.{ .all = &.{
-            .{ .object = &.{
-                .model,
-                .transform,
-                .color,
-            } },
-        } });
+        core.queue.writeBuffer(
+            object.state.camera_uniform_buf,
+            0,
+            &[_]CameraUniform{.{
+                .projection = camera.projection,
+                .view = camera.view,
+            }},
+        );
+        core.queue.writeBuffer(
+            object.state.light_uniform_buf,
+            0,
+            &[_]LightUniform{.{
+                .ambient_color = vec4(1, 1, 1, 0.2),
+                .lights = .{
+                    .{
+                        .position = vec3(0, 1, -1), // TODO: x is reverted!?
+                        .color = vec4(1, 0.2, 0.2, 1),
+                    },
+                    undefined, // TODO
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                },
+                .len = 1,
+            }},
+        );
 
-        while (archetypes_iter.next()) |archetype| {
-            for (
-                archetype.slice(.object, .model),
-                archetype.slice(.object, .transform),
-                0..,
-            ) |model, transform, i| {
-                engine.state.pass.setViewport(
-                    0,
-                    0,
-                    @floatFromInt(core.descriptor.width),
-                    @floatFromInt(core.descriptor.height),
-                    0.0,
-                    1.0,
-                );
-                engine.state.pass.setScissorRect(0, 0, core.descriptor.width, core.descriptor.height);
+        var archetypes_iter = engine.entities.query(.{ .all = &.{.{ .object = &.{ .model, .transform } }} });
+        while (archetypes_iter.next()) |archetype| for (
+            archetype.slice(.object, .model),
+            archetype.slice(.object, .transform),
+            0..,
+        ) |model, transform, i| {
+            const buffer_offset = @as(u32, @intCast(i)) * object.state.model_uniform_stride;
+            core.queue.writeBuffer(
+                object.state.model_uniform_buf,
+                buffer_offset,
+                &[_]ModelUniform{.{
+                    .model = transform.mat(),
+                    .normal = transform.normalMat(),
+                }},
+            );
+            engine.state.pass.setBindGroup(0, object.state.bind_group, &.{ 0, 0, buffer_offset });
 
-                const buffer_offset = @as(u32, @intCast(i)) * object.state.uniform_stride;
-                core.queue.writeBuffer(
-                    object.state.uniform_buf,
-                    buffer_offset,
-                    &[_]UBO{.{
-                        .projection = camera.projection,
-                        .view = camera.view,
-                        .model = transform.mat(),
-                        .normal = transform.normalMat(),
-                        .ambient_light_color = vec4(1, 1, 1, 0.2),
-                        .light_position = vec3(0, 1, -1), // TODO: x is reverted!?
-                        .light_color = vec4(1, 1, 1, 1),
-                    }},
-                );
-                model.bind(engine.state.pass);
-                engine.state.pass.setBindGroup(0, object.state.bind_group, &.{buffer_offset});
-                model.draw(engine.state.pass);
-            }
-        }
+            model.bind(engine.state.pass);
+            model.draw(engine.state.pass);
+        };
     }
 };
 

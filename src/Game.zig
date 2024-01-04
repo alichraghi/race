@@ -73,7 +73,6 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
         .translation = vec3(0, -1, 0),
         .scale = vec3(3, 0, 3),
     });
-    try object.set(quad, .color, vec3(1, 1, 1));
 
     const cube_m3d = try std.fs.cwd().openFile("assets/cube.m3d", .{});
     defer cube_m3d.close();
@@ -87,7 +86,6 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
         .translation = vec3(1, 0.5, 0),
         .scale = vec3(0.5, 0.5, 0.5),
     });
-    try object.set(cube, .color, vec3(1, 1, 1));
 
     const dragon_m3d = try std.fs.cwd().openFile("assets/monkey.m3d", .{});
     defer dragon_m3d.close();
@@ -102,12 +100,11 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
         .rotation = vec3(0, math.pi, 0),
         .scale = vec3(0.5, 0.5, 0.5),
     });
-    try object.set(dragon, .color, vec3(1, 1, 1));
 
     // Light
     const light_0 = try light.newEntity();
     try light.set(light_0, .position, vec3(0.5, 0.75, 0));
-    try light.set(light_0, .color, vec4(1, 0, 0, 1));
+    try light.set(light_0, .color, vec4(0, 1, 0, 1));
 
     // Camera
     const camera = Camera.init();
