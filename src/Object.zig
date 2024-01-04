@@ -189,31 +189,31 @@ pub const local = struct {
                 .view = camera_mod.get(camera, .view).?,
             }},
         );
+
+        var lights = std.BoundedArray(LightObject, max_lights){};
+
+        var archetypes_iter = engine.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color } }} });
+        while (archetypes_iter.next()) |archetype| for (
+            archetype.slice(.light, .position),
+            archetype.slice(.light, .color),
+        ) |position, color| {
+            try lights.append(.{
+                .position = position, // TODO: x is reverse?!
+                .color = color,
+            });
+        };
+
         core.queue.writeBuffer(
             object.state.light_uniform_buf,
             0,
             &[_]LightUniform{.{
                 .ambient_color = vec4(1, 1, 1, 0.2),
-                .lights = .{
-                    .{
-                        .position = vec3(0, 1, -1), // TODO: x is reverted!?
-                        .color = vec4(1, 0.2, 0.2, 1),
-                    },
-                    undefined, // TODO
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                },
-                .len = 1,
+                .lights = lights.buffer,
+                .len = lights.len,
             }},
         );
 
-        var archetypes_iter = engine.entities.query(.{ .all = &.{.{ .object = &.{ .model, .transform } }} });
+        archetypes_iter = engine.entities.query(.{ .all = &.{.{ .object = &.{ .model, .transform } }} });
         while (archetypes_iter.next()) |archetype| for (
             archetype.slice(.object, .model),
             archetype.slice(.object, .transform),

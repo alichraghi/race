@@ -37,26 +37,10 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
 pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
-    core.setCursorMode(.disabled);
+    // core.setCursorMode(.disabled);
 
     // Depth Texture
-    const depth_texture = core.device.createTexture(&gpu.Texture.Descriptor{
-        .size = gpu.Extent3D{
-            .width = core.descriptor.width,
-            .height = core.descriptor.height,
-        },
-        .format = .depth24_plus,
-        .usage = .{
-            .render_attachment = true,
-            .texture_binding = true,
-        },
-    });
-    const depth_view = depth_texture.createView(&gpu.TextureView.Descriptor{
-        .format = .depth24_plus,
-        .dimension = .dimension_2d,
-        .array_layer_count = 1,
-        .mip_level_count = 1,
-    });
+    const depth_texture, const depth_view = createDepthTexture();
 
     // Init modules
     try object.send(.init, .{10});
@@ -104,8 +88,16 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
 
     // Light
     const light_0 = try light.newEntity();
-    try light.set(light_0, .position, vec3(0.5, 0.75, 0));
+    try light.set(light_0, .position, vec3(0.5, 1, 0));
     try light.set(light_0, .color, vec4(0, 1, 0, 1));
+
+    const light_1 = try light.newEntity();
+    try light.set(light_1, .position, vec3(-0.5, 1, 0));
+    try light.set(light_1, .color, vec4(1, 0, 0, 1));
+
+    const light_2 = try light.newEntity();
+    try light.set(light_2, .position, vec3(0, 1, -0.5));
+    try light.set(light_2, .color, vec4(0, 0, 1, 1));
 
     // Camera
     const main_camera = try camera.newEntity();
@@ -216,9 +208,35 @@ pub const local = struct {
                     game.state.camera_rot = game.state.camera_rot.add(&rotation.mulScalar(rot_speed));
                     game.state.camera_front = math.worldSpaceDirection(game.state.camera_rot);
                 },
+                .framebuffer_resize => {
+                    game.state.depth_texture, game.state.depth_view = createDepthTexture();
+                },
                 .close => try engine.send(.exit, .{}),
                 else => {},
             }
         }
     }
 };
+
+pub fn createDepthTexture() struct { *gpu.Texture, *gpu.TextureView } {
+    const texture = core.device.createTexture(&gpu.Texture.Descriptor{
+        .size = gpu.Extent3D{
+            .width = core.descriptor.width,
+            .height = core.descriptor.height,
+        },
+        .format = .depth24_plus,
+        .usage = .{
+            .render_attachment = true,
+            .texture_binding = true,
+        },
+    });
+
+    const view = texture.createView(&gpu.TextureView.Descriptor{
+        .format = .depth24_plus,
+        .dimension = .dimension_2d,
+        .array_layer_count = 1,
+        .mip_level_count = 1,
+    });
+
+    return .{ texture, view };
+}
