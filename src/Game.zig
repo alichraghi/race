@@ -4,12 +4,14 @@ const math = @import("math.zig");
 const mesh = @import("mesh.zig");
 const Camera = @import("Camera.zig");
 const Object = @import("Object.zig");
+const Light = @import("Light.zig");
 const Model = @import("Model.zig");
 const core = mach.core;
 const Engine = mach.Engine;
 const gpu = core.gpu;
 const Vec3 = math.Vec3;
 const vec3 = math.vec3;
+const vec4 = math.vec4;
 
 timer: core.Timer,
 
@@ -33,7 +35,7 @@ pub const Mod = mach.Mod(@This());
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
-pub fn init(game: *Mod, object: *Object.Mod) !void {
+pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     core.setCursorMode(.disabled);
 
     // Depth Texture
@@ -55,8 +57,9 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
         .mip_level_count = 1,
     });
 
-    // Game objects
+    // Init modules
     try object.send(.init, .{10});
+    try light.send(.init, .{10});
 
     const quad_m3d = try std.fs.cwd().openFile("assets/quad.m3d", .{});
     defer quad_m3d.close();
@@ -101,6 +104,11 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
     });
     try object.set(dragon, .color, vec3(1, 1, 1));
 
+    // Light
+    const light_0 = try light.newEntity();
+    try light.set(light_0, .position, vec3(0.5, 0.75, 0));
+    try light.set(light_0, .color, vec4(1, 0, 0, 1));
+
     // Camera
     const camera = Camera.init();
 
@@ -130,7 +138,7 @@ pub fn deinit(game: *Mod, object: *Object.Mod) !void {
     _ = gpa.deinit();
 }
 
-pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod) !void {
+pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod, light: *Light.Mod) !void {
     try game.send(.processEvents, .{});
 
     { // Camera
@@ -170,6 +178,7 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod) !void {
     //     .rotation = vec3(0, object.get(game.state.dragon, .transform).?.rotation.y() + 0.01, 0),
     // });
     try object.send(.render, .{game.state.camera});
+    try light.send(.render, .{game.state.camera});
 
     try engine.send(.endPass, .{});
     try engine.send(.present, .{});

@@ -15,13 +15,12 @@ const vec4 = math.vec4;
 const mat3x3 = math.mat3x3;
 const mat4x4 = math.mat4x4;
 
-pub const name = .object;
+pub const name = .light;
 pub const Mod = mach.Mod(@This());
 
 pub const components = struct {
-    pub const model = Model;
-    pub const transform = Transform;
-    pub const color = Vec3;
+    pub const position = Vec3;
+    pub const color = Vec4;
 };
 
 pipeline: *gpu.RenderPipeline,
@@ -33,9 +32,6 @@ uniform_stride: u32,
 pub const UBO = extern struct {
     projection: Mat4x4,
     view: Mat4x4,
-    model: Mat4x4,
-    normal: Mat3x3,
-    ambient_light_color: Vec4,
     light_position: Vec3,
     light_color: Vec4,
 
@@ -49,8 +45,8 @@ pub const UBO = extern struct {
 };
 
 pub const local = struct {
-    pub fn init(object: *Mod, objects_capacity: u32) !void {
-        const shader_module = core.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
+    pub fn init(light: *Mod, lights_capacity: u32) !void {
+        const shader_module = core.device.createShaderModuleWGSL("light.wgsl", @embedFile("light.wgsl"));
         defer shader_module.release();
 
         const blend = gpu.BlendState{};
@@ -74,7 +70,7 @@ pub const local = struct {
 
         const uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = objects_capacity * uniform_stride,
+            .size = lights_capacity * uniform_stride,
             .mapped_at_creation = .false,
         });
 
@@ -99,7 +95,7 @@ pub const local = struct {
             .vertex = gpu.VertexState.init(.{
                 .module = shader_module,
                 .entry_point = "vertex_main",
-                .buffers = &.{Model.Vertex.layout},
+                .buffers = &.{},
             }),
             .primitive = .{},
             .depth_stencil = &.{
@@ -110,7 +106,7 @@ pub const local = struct {
         };
         const pipeline = core.device.createRenderPipeline(&pipeline_descriptor);
 
-        object.state = .{
+        light.state = .{
             .pipeline = pipeline,
             .uniform_buf = uniform_buf,
             .bind_group_layout = bind_group_layout,
@@ -119,29 +115,28 @@ pub const local = struct {
         };
     }
 
-    pub fn deinit(object: *Mod) !void {
-        object.state.bind_group_layout.release();
-        object.state.bind_group.release();
-        object.state.uniform_buf.release();
+    pub fn deinit(light: *Mod) !void {
+        light.state.bind_group_layout.release();
+        light.state.bind_group.release();
+        light.state.uniform_buf.release();
     }
 
-    pub fn render(engine: *Engine.Mod, object: *Mod, camera: Camera) !void {
-        engine.state.pass.setPipeline(object.state.pipeline);
+    pub fn render(engine: *Engine.Mod, light: *Mod, camera: Camera) !void {
+        engine.state.pass.setPipeline(light.state.pipeline);
 
         var archetypes_iter = engine.entities.query(.{ .all = &.{
-            .{ .object = &.{
-                .model,
-                .transform,
+            .{ .light = &.{
+                .position,
                 .color,
             } },
         } });
 
         while (archetypes_iter.next()) |archetype| {
             for (
-                archetype.slice(.object, .model),
-                archetype.slice(.object, .transform),
+                archetype.slice(.light, .position),
+                archetype.slice(.light, .color),
                 0..,
-            ) |model, transform, i| {
+            ) |position, color, i| {
                 engine.state.pass.setViewport(
                     0,
                     0,
@@ -152,68 +147,20 @@ pub const local = struct {
                 );
                 engine.state.pass.setScissorRect(0, 0, core.descriptor.width, core.descriptor.height);
 
-                const buffer_offset = @as(u32, @intCast(i)) * object.state.uniform_stride;
+                const buffer_offset = @as(u32, @intCast(i)) * light.state.uniform_stride;
                 core.queue.writeBuffer(
-                    object.state.uniform_buf,
+                    light.state.uniform_buf,
                     buffer_offset,
                     &[_]UBO{.{
                         .projection = camera.projection,
                         .view = camera.view,
-                        .model = transform.mat(),
-                        .normal = transform.normalMat(),
-                        .ambient_light_color = vec4(1, 1, 1, 0.2),
-                        .light_position = vec3(0, 1, -1), // TODO: x is reverted!?
-                        .light_color = vec4(1, 1, 1, 1),
+                        .light_position = position, // TODO: x is reverted!?
+                        .light_color = color,
                     }},
                 );
-                model.bind(engine.state.pass);
-                engine.state.pass.setBindGroup(0, object.state.bind_group, &.{buffer_offset});
-                model.draw(engine.state.pass);
+                engine.state.pass.setBindGroup(0, light.state.bind_group, &.{buffer_offset});
+                engine.state.pass.draw(6, 1, 0, 0);
             }
         }
-    }
-};
-
-pub const Transform = struct {
-    translation: Vec3 = vec3(0, 0, 0),
-    scale: Vec3 = vec3(1, 1, 1),
-    /// in radians
-    rotation: Vec3 = vec3(0, 0, 0),
-
-    pub fn mat(transform: Transform) Mat4x4 {
-        const translation = Mat4x4.translate(transform.translation);
-        const scale = Mat4x4.scale(transform.scale);
-        const rotation = Mat4x4.rotateX(transform.rotation.x())
-            .mul(&Mat4x4.rotateY(transform.rotation.y()))
-            .mul(&Mat4x4.rotateZ(transform.rotation.z()));
-        return scale.mul(&rotation.mul(&translation));
-    }
-
-    pub fn normalMat(transform: Transform) Mat3x3 {
-        const c3 = @cos(transform.rotation.z());
-        const s3 = @sin(transform.rotation.z());
-        const c2 = @cos(transform.rotation.x());
-        const s2 = @sin(transform.rotation.x());
-        const c1 = @cos(transform.rotation.y());
-        const s1 = @sin(transform.rotation.y());
-        const inv_scale = vec3(1, 1, 1).div(&transform.scale);
-
-        return mat3x3(
-            &vec3(
-                inv_scale.x() * (c1 * c3 + s1 * s2 * s3),
-                inv_scale.x() * (c2 * s3),
-                inv_scale.x() * (c1 * s2 * s3 - c3 * s1),
-            ),
-            &vec3(
-                inv_scale.y() * (c3 * s1 * s2 - c1 * s3),
-                inv_scale.y() * (c2 * c3),
-                inv_scale.y() * (c1 * c3 * s2 + s1 * s3),
-            ),
-            &vec3(
-                inv_scale.z() * (c2 * s1),
-                inv_scale.z() * (-s2),
-                inv_scale.z() * (c1 * c2),
-            ),
-        );
     }
 };

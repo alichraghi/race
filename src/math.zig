@@ -20,3 +20,8 @@ pub fn worldSpaceDirection(local_rotation: Vec3) Vec3 {
         @sin(local_rotation.y()) * @cos(local_rotation.x()),
     ));
 }
+
+pub fn ceilToNextMultiple(value: u32, step: u32) u32 {
+    const divide_and_ceil = value / step + @as(u32, if (value % step == 0) 0 else 1);
+    return step * divide_and_ceil;
+}
