@@ -7,8 +7,12 @@ const Model = @import("Model.zig");
 const Camera = @import("Camera.zig");
 const math = mach.math;
 const Vec3 = math.Vec3;
+const Vec4 = math.Vec4;
+const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
 const vec3 = math.vec3;
+const vec4 = math.vec4;
+const mat3x3 = math.mat3x3;
 const mat4x4 = math.mat4x4;
 
 pub const name = .object;
@@ -31,11 +35,14 @@ fn ceilToNextMultiple(value: u32, step: u32) u32 {
     return step * divide_and_ceil;
 }
 
-pub const UBO = struct {
-    projection: @Vector(16, f32),
-    view: @Vector(16, f32),
-    model: @Vector(16, f32),
-    normal: @Vector(16, f32),
+pub const UBO = extern struct {
+    projection: Mat4x4,
+    view: Mat4x4,
+    model: Mat4x4,
+    normal: Mat3x3,
+    ambient_light_color: Vec4,
+    light_position: Vec3,
+    light_color: Vec4,
 
     pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
         0,
@@ -155,10 +162,13 @@ pub const local = struct {
                     object.state.uniform_buf,
                     buffer_offset,
                     &[_]UBO{.{
-                        .projection = @bitCast(camera.projection),
-                        .view = @bitCast(camera.view),
-                        .model = @bitCast(transform.mat()),
-                        .normal = undefined, // TODO
+                        .projection = camera.projection,
+                        .view = camera.view,
+                        .model = transform.mat(),
+                        .normal = transform.normalMat(),
+                        .ambient_light_color = vec4(1, 1, 1, 0.2),
+                        .light_position = vec3(0, 1, -1), // TODO: x is reverted!?
+                        .light_color = vec4(1, 1, 1, 1),
                     }},
                 );
                 model.bind(engine.state.pass);
@@ -181,6 +191,34 @@ pub const Transform = struct {
         const rotation = Mat4x4.rotateX(transform.rotation.x())
             .mul(&Mat4x4.rotateY(transform.rotation.y()))
             .mul(&Mat4x4.rotateZ(transform.rotation.z()));
-        return translation.mul(&rotation.mul(&scale));
+        return scale.mul(&rotation.mul(&translation));
+    }
+
+    pub fn normalMat(transform: Transform) Mat3x3 {
+        const c3 = @cos(transform.rotation.z());
+        const s3 = @sin(transform.rotation.z());
+        const c2 = @cos(transform.rotation.x());
+        const s2 = @sin(transform.rotation.x());
+        const c1 = @cos(transform.rotation.y());
+        const s1 = @sin(transform.rotation.y());
+        const inv_scale = vec3(1, 1, 1).div(&transform.scale);
+
+        return mat3x3(
+            &vec3(
+                inv_scale.x() * (c1 * c3 + s1 * s2 * s3),
+                inv_scale.x() * (c2 * s3),
+                inv_scale.x() * (c1 * s2 * s3 - c3 * s1),
+            ),
+            &vec3(
+                inv_scale.y() * (c3 * s1 * s2 - c1 * s3),
+                inv_scale.y() * (c2 * c3),
+                inv_scale.y() * (c1 * c3 * s2 + s1 * s3),
+            ),
+            &vec3(
+                inv_scale.z() * (c2 * s1),
+                inv_scale.z() * (-s2),
+                inv_scale.z() * (c1 * c2),
+            ),
+        );
     }
 };

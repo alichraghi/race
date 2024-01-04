@@ -4,6 +4,9 @@ const M3d = @import("model3d");
 const math = @import("math.zig");
 const core = mach.core;
 const gpu = core.gpu;
+const Vec3 = math.Vec3;
+const Vec2 = math.Vec2;
+const vec2 = math.vec2;
 const vec3 = math.vec3;
 
 const Model = @This();
@@ -48,12 +51,11 @@ pub fn initFromM3D(allocator: std.mem.Allocator, data: [:0]const u8) !Model {
     const m3d_model = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
 
     const vertex_count = m3d_model.handle.numvertex;
+    const face_count = m3d_model.handle.numface;
+    const index_count = face_count * 3;
     const vertices = m3d_model.handle.vertex[0..vertex_count];
 
-    const face_count = m3d_model.handle.numface;
-    const index_count = (face_count * 3) + 6;
-
-    var vertex_writer = try VertexWriter(Vertex, u32).init(
+    var vertex_writer = try mach.gfx.util.VertexWriter(Vertex, u32).init(
         allocator,
         @intCast(index_count),
         @intCast(vertex_count),
@@ -61,52 +63,46 @@ pub fn initFromM3D(allocator: std.mem.Allocator, data: [:0]const u8) !Model {
     );
     defer vertex_writer.deinit(allocator);
 
-    const scale: f32 = 80.0;
-    const plane_xy = [2]usize{ 0, 1 };
-    var extent_min = [2]f32{ std.math.floatMax(f32), std.math.floatMax(f32) };
-    var extent_max = [2]f32{ std.math.floatMin(f32), std.math.floatMin(f32) };
+    var extent_min = Vec2.splat(std.math.floatMax(f32));
+    var extent_max = Vec2.splat(std.math.floatMin(f32));
 
-    var i: usize = 0;
-    while (i < face_count) : (i += 1) {
+    for (0..face_count) |i| {
         const face = m3d_model.handle.face[i];
-        var x: usize = 0;
-        while (x < 3) : (x += 1) {
+        for (0..3) |x| {
             const vertex_index = face.vertex[x];
             const normal_index = face.normal[x];
             const position = vec3(
-                vertices[vertex_index].x * scale,
-                vertices[vertex_index].y * scale,
-                vertices[vertex_index].z * scale,
+                vertices[vertex_index].x,
+                vertices[vertex_index].y,
+                vertices[vertex_index].z,
             );
-            extent_min[0] = @min(position.v[plane_xy[0]], extent_min[0]);
-            extent_min[1] = @min(position.v[plane_xy[1]], extent_min[1]);
-            extent_max[0] = @max(position.v[plane_xy[0]], extent_max[0]);
-            extent_max[1] = @max(position.v[plane_xy[1]], extent_max[1]);
+            extent_min = vec2(
+                @min(position.x(), extent_min.x()),
+                @min(position.y(), extent_min.y()),
+            );
+            extent_max = vec2(
+                @max(position.x(), extent_max.x()),
+                @max(position.y(), extent_max.y()),
+            );
 
             const vertex = Vertex{
-                .position = position.v,
-                .normal = .{
+                .position = position,
+                .normal = vec3(
                     vertices[normal_index].x,
                     vertices[normal_index].y,
                     vertices[normal_index].z,
-                },
-                .uv = .{ position.v[plane_xy[0]], position.v[plane_xy[1]] },
+                ),
+                .uv = vec2(position.x(), position.y()),
             };
             vertex_writer.put(vertex, vertex_index);
         }
     }
 
-    const vertex_buffer = vertex_writer.vertices[0 .. vertex_writer.next_packed_index + 4];
+    const vertex_buffer = vertex_writer.vertices[0..vertex_writer.next_packed_index];
     const index_buffer = vertex_writer.indices;
 
-    //
-    // Compute UV values
-    //
     for (vertex_buffer) |*vertex| {
-        vertex.uv = .{
-            (vertex.uv[0] - extent_min[0]) / (extent_max[0] - extent_min[0]),
-            (vertex.uv[1] - extent_min[1]) / (extent_max[1] - extent_min[1]),
-        };
+        vertex.uv = vertex.uv.sub(&extent_min).div(&extent_max.sub(&extent_min));
     }
 
     return init(vertex_buffer, index_buffer);
@@ -135,10 +131,10 @@ pub fn draw(model: Model, pass: *gpu.RenderPassEncoder) void {
 }
 
 pub const Vertex = struct {
-    position: @Vector(3, f32),
-    color: @Vector(3, f32) = .{ 1, 0.2, 0.2 },
-    normal: @Vector(3, f32) = undefined, // TODO
-    uv: @Vector(2, f32) = undefined, // TODO
+    position: Vec3,
+    color: Vec3 = vec3(1, 1, 1), // TODO
+    normal: Vec3 = vec3(0, 0, 0), // TODO
+    uv: Vec2 = vec2(0, 0), // TODO
 
     pub const attributes = [_]gpu.VertexAttribute{
         .{
@@ -169,101 +165,3 @@ pub const Vertex = struct {
         .attributes = &attributes,
     });
 };
-
-/// Vertex writer manages the placement of vertices by tracking which are unique. If a duplicate vertex is added
-/// with `put`, only it's index will be written to the index buffer.
-/// `IndexType` should match the integer type used for the index buffer
-pub fn VertexWriter(comptime VertexType: type, comptime IndexType: type) type {
-    return struct {
-        const MapEntry = struct {
-            packed_index: IndexType = null_index,
-            next_sparse: IndexType = null_index,
-        };
-
-        const null_index: IndexType = std.math.maxInt(IndexType);
-
-        vertices: []VertexType,
-        indices: []IndexType,
-        sparse_to_packed_map: []MapEntry,
-
-        /// Next index outside of the 1:1 mapping range for storing
-        /// position -> normal collisions
-        next_collision_index: IndexType,
-
-        /// Next packed index
-        next_packed_index: IndexType,
-        written_indices_count: IndexType,
-
-        /// Allocate storage and set default values
-        /// `sparse_vertices_count` is the number of vertices in the source before de-duplication / remapping
-        /// Put more succinctly, the largest index value in source index buffer
-        /// `max_vertex_count` is largest permutation of vertices assuming that {vertex, uv, normal} never map 1:1 and always
-        /// create a new mapping
-        pub fn init(
-            allocator: std.mem.Allocator,
-            indices_count: IndexType,
-            sparse_vertices_count: IndexType,
-            max_vertex_count: IndexType,
-        ) !@This() {
-            var result: @This() = undefined;
-            result.vertices = try allocator.alloc(VertexType, max_vertex_count);
-            result.indices = try allocator.alloc(IndexType, indices_count);
-            result.sparse_to_packed_map = try allocator.alloc(MapEntry, max_vertex_count);
-            result.next_collision_index = sparse_vertices_count;
-            result.next_packed_index = 0;
-            result.written_indices_count = 0;
-            @memset(result.sparse_to_packed_map, .{});
-            return result;
-        }
-
-        pub fn put(self: *@This(), vertex: VertexType, sparse_index: IndexType) void {
-            if (self.sparse_to_packed_map[sparse_index].packed_index == null_index) {
-                // New start of chain, reserve a new packed index and add entry to `index_map`
-                const packed_index = self.next_packed_index;
-                self.sparse_to_packed_map[sparse_index].packed_index = packed_index;
-                self.vertices[packed_index] = vertex;
-                self.indices[self.written_indices_count] = packed_index;
-                self.written_indices_count += 1;
-                self.next_packed_index += 1;
-                return;
-            }
-            var previous_sparse_index: IndexType = undefined;
-            var current_sparse_index = sparse_index;
-            while (current_sparse_index != null_index) {
-                const packed_index = self.sparse_to_packed_map[current_sparse_index].packed_index;
-                if (std.mem.eql(u8, &std.mem.toBytes(self.vertices[packed_index]), &std.mem.toBytes(vertex))) {
-                    // We already have a record for this vertex in our chain
-                    self.indices[self.written_indices_count] = packed_index;
-                    self.written_indices_count += 1;
-                    return;
-                }
-                previous_sparse_index = current_sparse_index;
-                current_sparse_index = self.sparse_to_packed_map[current_sparse_index].next_sparse;
-            }
-            // This is a new mapping for the given sparse index
-            const packed_index = self.next_packed_index;
-            const remapped_sparse_index = self.next_collision_index;
-            self.indices[self.written_indices_count] = packed_index;
-            self.vertices[packed_index] = vertex;
-            self.sparse_to_packed_map[previous_sparse_index].next_sparse = remapped_sparse_index;
-            self.sparse_to_packed_map[remapped_sparse_index].packed_index = packed_index;
-            self.next_packed_index += 1;
-            self.next_collision_index += 1;
-            self.written_indices_count += 1;
-        }
-
-        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-            allocator.free(self.vertices);
-            allocator.free(self.indices);
-            allocator.free(self.sparse_to_packed_map);
-        }
-
-        pub fn indexBuffer(self: @This()) []IndexType {
-            return self.indices;
-        }
-
-        pub fn vertexBuffer(self: @This()) []VertexType {
-            return self.vertices[0..self.next_packed_index];
-        }
-    };
-}

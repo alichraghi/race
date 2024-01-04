@@ -17,7 +17,7 @@ depth_texture: *gpu.Texture,
 depth_view: *gpu.TextureView,
 
 dragon: mach.ecs.EntityID,
-plane: mach.ecs.EntityID,
+quad: mach.ecs.EntityID,
 
 prev_mouse_pos: Vec3,
 
@@ -58,16 +58,35 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
     // Game objects
     try object.send(.init, .{10});
 
-    const plane = try object.newEntity();
-    const plane_model = Model.init(&mesh.cube, &mesh.cube_indices);
-    try object.set(plane, .model, plane_model);
-    try object.set(plane, .transform, .{
+    const quad_m3d = try std.fs.cwd().openFile("assets/quad.m3d", .{});
+    defer quad_m3d.close();
+    const quad_data = try quad_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
+    defer allocator.free(quad_data);
+
+    const quad = try object.newEntity();
+    const quad_model = try Model.initFromM3D(allocator, quad_data);
+    try object.set(quad, .model, quad_model);
+    try object.set(quad, .transform, .{
         .translation = vec3(0, -1, 0),
         .scale = vec3(3, 0, 3),
     });
-    try object.set(plane, .color, vec3(1, 1, 1));
+    try object.set(quad, .color, vec3(1, 1, 1));
 
-    const dragon_m3d = try std.fs.cwd().openFile("assets/dragon.m3d", .{});
+    const cube_m3d = try std.fs.cwd().openFile("assets/cube.m3d", .{});
+    defer cube_m3d.close();
+    const cube_data = try cube_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
+    defer allocator.free(cube_data);
+
+    const cube = try object.newEntity();
+    const cube_model = try Model.initFromM3D(allocator, cube_data);
+    try object.set(cube, .model, cube_model);
+    try object.set(cube, .transform, .{
+        .translation = vec3(1, 0.5, 0),
+        .scale = vec3(0.5, 0.5, 0.5),
+    });
+    try object.set(cube, .color, vec3(1, 1, 1));
+
+    const dragon_m3d = try std.fs.cwd().openFile("assets/monkey.m3d", .{});
     defer dragon_m3d.close();
     const dragon_data = try dragon_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
     defer allocator.free(dragon_data);
@@ -75,14 +94,18 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
     const dragon = try object.newEntity();
     const dragon_model = try Model.initFromM3D(allocator, dragon_data);
     try object.set(dragon, .model, dragon_model);
-    try object.set(dragon, .transform, .{});
+    try object.set(dragon, .transform, .{
+        .translation = vec3(0, 1, 0),
+        .rotation = vec3(0, math.pi, 0),
+        .scale = vec3(0.5, 0.5, 0.5),
+    });
     try object.set(dragon, .color, vec3(1, 1, 1));
 
     // Camera
     const camera = Camera.init();
 
     const mouse_pos = core.mousePosition();
-    const camera_rot = vec3(0, 1.5707963268, 0); // 90deg
+    const camera_rot = vec3(0, math.degreesToRadians(f32, 90), 0);
     const camera_front = math.worldSpaceDirection(camera_rot);
 
     game.state = .{
@@ -90,7 +113,7 @@ pub fn init(game: *Mod, object: *Object.Mod) !void {
         .depth_texture = depth_texture,
         .depth_view = depth_view,
         .dragon = dragon,
-        .plane = plane,
+        .quad = quad,
         .camera = camera,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
         .camera_pos = vec3(0, 0, -6),
@@ -143,10 +166,9 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod) !void {
         .depth_store_op = .store,
     } });
 
-    try object.set(game.state.dragon, .transform, .{
-        .rotation = vec3(0, object.get(game.state.dragon, .transform).?.rotation.y() + 0.01, 0),
-        .scale = vec3(0.01, 0.01, 0.01),
-    });
+    // try object.set(game.state.dragon, .transform, .{
+    //     .rotation = vec3(0, object.get(game.state.dragon, .transform).?.rotation.y() + 0.01, 0),
+    // });
     try object.send(.render, .{game.state.camera});
 
     try engine.send(.endPass, .{});
