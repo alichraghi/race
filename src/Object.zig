@@ -32,8 +32,6 @@ bind_group: *gpu.BindGroup,
 camera_uniform_buf: *gpu.Buffer,
 light_uniform_buf: *gpu.Buffer,
 model_uniform_buf: *gpu.Buffer,
-camera_uniform_stride: u32,
-light_uniform_stride: u32,
 model_uniform_stride: u32,
 
 pub const CameraUniform = struct {
@@ -101,23 +99,15 @@ pub const local = struct {
         var limits = gpu.SupportedLimits{};
         _ = core.device.getLimits(&limits);
 
-        const camera_uniform_stride = math.ceilToNextMultiple(
-            @sizeOf(CameraUniform),
-            limits.limits.min_uniform_buffer_offset_alignment,
-        );
         const camera_uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = objects_capacity * camera_uniform_stride,
+            .size = @sizeOf(CameraUniform),
             .mapped_at_creation = .false,
         });
 
-        const light_uniform_stride = math.ceilToNextMultiple(
-            @sizeOf(LightUniform),
-            limits.limits.min_uniform_buffer_offset_alignment,
-        );
         const light_uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = objects_capacity * light_uniform_stride,
+            .size = @sizeOf(LightUniform),
             .mapped_at_creation = .false,
         });
 
@@ -142,8 +132,8 @@ pub const local = struct {
             &gpu.BindGroup.Descriptor.init(.{
                 .layout = bind_group_layout,
                 .entries = &.{
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_stride),
-                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(CameraUniform)),
+                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, @sizeOf(LightUniform)),
                     gpu.BindGroup.Entry.buffer(2, model_uniform_buf, 0, model_uniform_stride),
                 },
             }),
@@ -176,8 +166,6 @@ pub const local = struct {
             .model_uniform_buf = model_uniform_buf,
             .bind_group_layout = bind_group_layout,
             .bind_group = bind_group,
-            .camera_uniform_stride = camera_uniform_stride,
-            .light_uniform_stride = light_uniform_stride,
             .model_uniform_stride = model_uniform_stride,
         };
     }
@@ -190,15 +178,15 @@ pub const local = struct {
         object.state.model_uniform_buf.release();
     }
 
-    pub fn render(engine: *Engine.Mod, object: *Mod, camera: Camera) !void {
+    pub fn render(engine: *Engine.Mod, object: *Mod, camera_mod: *Camera.Mod, camera: mach.ecs.EntityID) !void {
         engine.state.pass.setPipeline(object.state.pipeline);
 
         core.queue.writeBuffer(
             object.state.camera_uniform_buf,
             0,
             &[_]CameraUniform{.{
-                .projection = camera.projection,
-                .view = camera.view,
+                .projection = camera_mod.get(camera, .projection).?,
+                .view = camera_mod.get(camera, .view).?,
             }},
         );
         core.queue.writeBuffer(

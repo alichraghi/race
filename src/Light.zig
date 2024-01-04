@@ -121,7 +121,7 @@ pub const local = struct {
         light.state.uniform_buf.release();
     }
 
-    pub fn render(engine: *Engine.Mod, light: *Mod, camera: Camera) !void {
+    pub fn render(engine: *Engine.Mod, light: *Mod, camera_mod: *Camera.Mod, camera: mach.ecs.EntityID) !void {
         engine.state.pass.setPipeline(light.state.pipeline);
 
         var archetypes_iter = engine.entities.query(.{ .all = &.{
@@ -137,23 +137,13 @@ pub const local = struct {
                 archetype.slice(.light, .color),
                 0..,
             ) |position, color, i| {
-                engine.state.pass.setViewport(
-                    0,
-                    0,
-                    @floatFromInt(core.descriptor.width),
-                    @floatFromInt(core.descriptor.height),
-                    0.0,
-                    1.0,
-                );
-                engine.state.pass.setScissorRect(0, 0, core.descriptor.width, core.descriptor.height);
-
                 const buffer_offset = @as(u32, @intCast(i)) * light.state.uniform_stride;
                 core.queue.writeBuffer(
                     light.state.uniform_buf,
                     buffer_offset,
                     &[_]UBO{.{
-                        .projection = camera.projection,
-                        .view = camera.view,
+                        .projection = camera_mod.get(camera, .projection).?,
+                        .view = camera_mod.get(camera, .view).?,
                         .light_position = position, // TODO: x is reverted!?
                         .light_color = color,
                     }},

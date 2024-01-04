@@ -9,6 +9,7 @@ const Model = @import("Model.zig");
 const core = mach.core;
 const Engine = mach.Engine;
 const gpu = core.gpu;
+const Mat4x4 = math.Mat4x4;
 const Vec3 = math.Vec3;
 const vec3 = math.vec3;
 const vec4 = math.vec4;
@@ -20,10 +21,10 @@ depth_view: *gpu.TextureView,
 
 dragon: mach.ecs.EntityID,
 quad: mach.ecs.EntityID,
+main_camera: mach.ecs.EntityID,
 
 prev_mouse_pos: Vec3,
 
-camera: Camera,
 camera_pos: Vec3,
 camera_rot: Vec3,
 camera_dir: Vec3,
@@ -35,7 +36,7 @@ pub const Mod = mach.Mod(@This());
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
-pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
+pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
     core.setCursorMode(.disabled);
 
     // Depth Texture
@@ -107,8 +108,9 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     try light.set(light_0, .color, vec4(0, 1, 0, 1));
 
     // Camera
-    const camera = Camera.init();
-
+    const main_camera = try camera.newEntity();
+    try camera.set(main_camera, .view, Mat4x4.ident);
+    try camera.set(main_camera, .projection, Mat4x4.ident);
     const mouse_pos = core.mousePosition();
     const camera_rot = vec3(0, math.degreesToRadians(f32, 90), 0);
     const camera_front = math.worldSpaceDirection(camera_rot);
@@ -119,7 +121,7 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
         .depth_view = depth_view,
         .dragon = dragon,
         .quad = quad,
-        .camera = camera,
+        .main_camera = main_camera,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
         .camera_pos = vec3(0, 0, -6),
         .camera_rot = camera_rot,
@@ -135,18 +137,19 @@ pub fn deinit(game: *Mod, object: *Object.Mod) !void {
     _ = gpa.deinit();
 }
 
-pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod, light: *Light.Mod) !void {
+pub fn tick(game: *Mod, engine: *Engine.Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
     try game.send(.processEvents, .{});
 
     { // Camera
         // Projection
         const aspect = @as(f32, @floatFromInt(core.descriptor.width)) / @as(f32, @floatFromInt(core.descriptor.height));
-        game.state.camera.perspective(
+        try camera.send(.perspective, .{
+            game.state.main_camera,
             math.degreesToRadians(f32, 45),
             aspect,
             0.1,
             100,
-        );
+        });
 
         // Position
         const move_speed = 5 * core.delta_time;
@@ -157,11 +160,12 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod, light: *Light.
         game.state.camera_pos = game.state.camera_pos.add(&camera_movement);
 
         // View
-        game.state.camera.lookAt(
+        try camera.send(.lookAt, .{
+            game.state.main_camera,
             game.state.camera_pos,
             game.state.camera_pos.add(&game.state.camera_front),
             math.up,
-        );
+        });
     }
 
     try engine.send(.beginPass, .{ .{ .r = 0.09375, .g = 0.09375, .b = 0.09375, .a = 0 }, &.{
@@ -174,8 +178,8 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, object: *Object.Mod, light: *Light.
     // try object.set(game.state.dragon, .transform, .{
     //     .rotation = vec3(0, object.get(game.state.dragon, .transform).?.rotation.y() + 0.01, 0),
     // });
-    try object.send(.render, .{game.state.camera});
-    try light.send(.render, .{game.state.camera});
+    try object.send(.render, .{game.state.main_camera});
+    try light.send(.render, .{game.state.main_camera});
 
     try engine.send(.endPass, .{});
     try engine.send(.present, .{});
