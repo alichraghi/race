@@ -15,6 +15,11 @@ pub const components = struct {
     pub const view = Mat4x4;
 };
 
+pub const Uniform = struct {
+    projection: Mat4x4,
+    view: Mat4x4,
+};
+
 pub const local = struct {
     pub fn init(mod: *Mod) !void {
         mod.state = .{};
@@ -25,9 +30,9 @@ pub const local = struct {
         const s = math.normalize(up.cross(&f));
         const u = f.cross(&s);
         try mod.set(camera, .view, mat4x4(
-            &vec4(s.x(), s.y(), s.z(), -s.dot(&eye)),
-            &vec4(u.x(), u.y(), u.z(), -u.dot(&eye)),
-            &vec4(f.x(), f.y(), f.z(), -f.dot(&eye)),
+            &vec4(-s.x(), s.y(), s.z(), -s.dot(&eye)),
+            &vec4(-u.x(), u.y(), u.z(), -u.dot(&eye)),
+            &vec4(-f.x(), f.y(), f.z(), -f.dot(&eye)),
             &vec4(0, 0, 0, 1),
         ));
     }

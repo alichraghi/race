@@ -1,4 +1,4 @@
-struct CameraUniform {
+struct Camera {
     projection: mat4x4<f32>,
     view: mat4x4<f32>,
 };
@@ -6,22 +6,23 @@ struct CameraUniform {
 struct Light {
     position: vec3<f32>,
     color: vec4<f32>,
+    radius: f32,
 };
 
-struct LightUniform {
+struct LightList {
     ambient_color: vec4<f32>, // w is intensity
     lights: array<Light, 10>,
     len: u32,
 };
 
-struct ModelUniform {
+struct Model {
     model: mat4x4<f32>,
     normal: mat3x3<f32>,
 };
 
-@group(0) @binding(0) var<uniform> camera: CameraUniform;
-@group(0) @binding(1) var<uniform> light: LightUniform;
-@group(0) @binding(2) var<uniform> model: ModelUniform;
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<uniform> light: LightList;
+@group(0) @binding(2) var<uniform> model: Model;
 
 struct Output {
     @builtin(position) position: vec4<f32>,

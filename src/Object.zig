@@ -2,6 +2,7 @@ const std = @import("std");
 const mach = @import("mach");
 const Model = @import("Model.zig");
 const Camera = @import("Camera.zig");
+const Light = @import("Light.zig");
 const math = @import("math.zig");
 const core = mach.core;
 const Engine = mach.Engine;
@@ -34,27 +35,9 @@ light_uniform_buf: *gpu.Buffer,
 model_uniform_buf: *gpu.Buffer,
 model_uniform_stride: u32,
 
-pub const CameraUniform = struct {
-    projection: Mat4x4,
-    view: Mat4x4,
-
-    pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
-        0,
-        .{ .vertex = true, .fragment = true },
-        .uniform,
-        true,
-        0,
-    );
-};
-
-pub const LightObject = struct {
-    position: Vec3,
-    color: Vec4,
-};
-
 pub const LightUniform = struct {
     ambient_color: Vec4,
-    lights: [max_lights]LightObject,
+    lights: [max_lights]Light.Uniform,
     len: u32,
 
     pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
@@ -66,7 +49,7 @@ pub const LightUniform = struct {
     );
 };
 
-pub const ModelUniform = struct {
+pub const Uniform = struct {
     model: Mat4x4,
     normal: Mat3x3,
 
@@ -101,7 +84,7 @@ pub const local = struct {
 
         const camera_uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = @sizeOf(CameraUniform),
+            .size = @sizeOf(Camera.Uniform),
             .mapped_at_creation = .false,
         });
 
@@ -112,7 +95,7 @@ pub const local = struct {
         });
 
         const model_uniform_stride = math.ceilToNextMultiple(
-            @sizeOf(ModelUniform),
+            @sizeOf(Uniform),
             limits.limits.min_uniform_buffer_offset_alignment,
         );
         const model_uniform_buf = core.device.createBuffer(&.{
@@ -123,16 +106,16 @@ pub const local = struct {
 
         const bind_group_layout = core.device.createBindGroupLayout(
             &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
-                CameraUniform.bind_group_layout_entry,
-                LightUniform.bind_group_layout_entry,
-                ModelUniform.bind_group_layout_entry,
+                gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.buffer(2, .{ .vertex = true }, .uniform, true, 0),
             } }),
         );
         const bind_group = core.device.createBindGroup(
             &gpu.BindGroup.Descriptor.init(.{
                 .layout = bind_group_layout,
                 .entries = &.{
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(CameraUniform)),
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(Camera.Uniform)),
                     gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, @sizeOf(LightUniform)),
                     gpu.BindGroup.Entry.buffer(2, model_uniform_buf, 0, model_uniform_stride),
                 },
@@ -161,11 +144,11 @@ pub const local = struct {
 
         object.state = .{
             .pipeline = pipeline,
+            .bind_group_layout = bind_group_layout,
+            .bind_group = bind_group,
             .camera_uniform_buf = camera_uniform_buf,
             .light_uniform_buf = light_uniform_buf,
             .model_uniform_buf = model_uniform_buf,
-            .bind_group_layout = bind_group_layout,
-            .bind_group = bind_group,
             .model_uniform_stride = model_uniform_stride,
         };
     }
@@ -184,22 +167,23 @@ pub const local = struct {
         core.queue.writeBuffer(
             object.state.camera_uniform_buf,
             0,
-            &[_]CameraUniform{.{
+            &[_]Camera.Uniform{.{
                 .projection = camera_mod.get(camera, .projection).?,
                 .view = camera_mod.get(camera, .view).?,
             }},
         );
 
-        var lights = std.BoundedArray(LightObject, max_lights){};
-
-        var archetypes_iter = engine.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color } }} });
+        var lights = std.BoundedArray(Light.Uniform, max_lights){};
+        var archetypes_iter = engine.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
         while (archetypes_iter.next()) |archetype| for (
             archetype.slice(.light, .position),
             archetype.slice(.light, .color),
-        ) |position, color| {
+            archetype.slice(.light, .radius),
+        ) |position, color, radius| {
             try lights.append(.{
                 .position = position, // TODO: x is reverse?!
                 .color = color,
+                .radius = radius,
             });
         };
 
@@ -223,12 +207,12 @@ pub const local = struct {
             core.queue.writeBuffer(
                 object.state.model_uniform_buf,
                 buffer_offset,
-                &[_]ModelUniform{.{
+                &[_]Uniform{.{
                     .model = transform.mat(),
                     .normal = transform.normalMat(),
                 }},
             );
-            engine.state.pass.setBindGroup(0, object.state.bind_group, &.{ 0, 0, buffer_offset });
+            engine.state.pass.setBindGroup(0, object.state.bind_group, &.{buffer_offset});
 
             model.bind(engine.state.pass);
             model.draw(engine.state.pass);
@@ -245,10 +229,10 @@ pub const Transform = struct {
     pub fn mat(transform: Transform) Mat4x4 {
         const translation = Mat4x4.translate(transform.translation);
         const scale = Mat4x4.scale(transform.scale);
-        const rotation = Mat4x4.rotateX(transform.rotation.x())
+        const rotation = Mat4x4.rotateZ(transform.rotation.z())
             .mul(&Mat4x4.rotateY(transform.rotation.y()))
-            .mul(&Mat4x4.rotateZ(transform.rotation.z()));
-        return scale.mul(&rotation.mul(&translation));
+            .mul(&Mat4x4.rotateX(transform.rotation.x()));
+        return translation.mul(&rotation).mul(&scale);
     }
 
     pub fn normalMat(transform: Transform) Mat3x3 {
@@ -267,9 +251,9 @@ pub const Transform = struct {
                 inv_scale.x() * (c1 * s2 * s3 - c3 * s1),
             ),
             &vec3(
-                inv_scale.y() * (c3 * s1 * s2 - c1 * s3),
+                inv_scale.y() * (c3 * s1 * s2 + c1 * s3),
                 inv_scale.y() * (c2 * c3),
-                inv_scale.y() * (c1 * c3 * s2 + s1 * s3),
+                inv_scale.y() * (c1 * c3 * s2 - s1 * s3),
             ),
             &vec3(
                 inv_scale.z() * (c2 * s1),

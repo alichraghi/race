@@ -1,7 +1,6 @@
 const std = @import("std");
 const mach = @import("mach");
 const math = @import("math.zig");
-const mesh = @import("mesh.zig");
 const Camera = @import("Camera.zig");
 const Object = @import("Object.zig");
 const Light = @import("Light.zig");
@@ -37,16 +36,16 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 
 pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
-    // core.setCursorMode(.disabled);
+    core.setCursorMode(.disabled);
 
     // Depth Texture
     const depth_texture, const depth_view = createDepthTexture();
 
     // Init modules
     try object.send(.init, .{10});
-    try light.send(.init, .{10});
+    try light.send(.init, .{ 10, true });
 
-    const quad_m3d = try std.fs.cwd().openFile("assets/quad.m3d", .{});
+    const quad_m3d = try std.fs.cwd().openFile("assets/cube.m3d", .{});
     defer quad_m3d.close();
     const quad_data = try quad_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
     defer allocator.free(quad_data);
@@ -55,8 +54,8 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     const quad_model = try Model.initFromM3D(allocator, quad_data);
     try object.set(quad, .model, quad_model);
     try object.set(quad, .transform, .{
-        .translation = vec3(0, -1, 0),
-        .scale = vec3(3, 0, 3),
+        .translation = vec3(0, 0, 0),
+        .scale = vec3(3, 0.01, 3),
     });
 
     const cube_m3d = try std.fs.cwd().openFile("assets/cube.m3d", .{});
@@ -68,7 +67,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     const cube_model = try Model.initFromM3D(allocator, cube_data);
     try object.set(cube, .model, cube_model);
     try object.set(cube, .transform, .{
-        .translation = vec3(1, 0.5, 0),
+        .translation = vec3(3, 0.5, 0),
         .scale = vec3(0.5, 0.5, 0.5),
     });
 
@@ -81,23 +80,26 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     const dragon_model = try Model.initFromM3D(allocator, dragon_data);
     try object.set(dragon, .model, dragon_model);
     try object.set(dragon, .transform, .{
-        .translation = vec3(0, 1, 0),
+        .translation = vec3(3, 1, 0),
         .rotation = vec3(0, math.pi, 0),
         .scale = vec3(0.5, 0.5, 0.5),
     });
 
     // Light
     const light_0 = try light.newEntity();
-    try light.set(light_0, .position, vec3(0.5, 1, 0));
+    try light.set(light_0, .position, vec3(1, 1.5, 0));
     try light.set(light_0, .color, vec4(0, 1, 0, 1));
+    try light.set(light_0, .radius, 0.05);
 
     const light_1 = try light.newEntity();
-    try light.set(light_1, .position, vec3(-0.5, 1, 0));
+    try light.set(light_1, .position, vec3(-1, 1.5, 0));
     try light.set(light_1, .color, vec4(1, 0, 0, 1));
+    try light.set(light_1, .radius, 0.05);
 
     const light_2 = try light.newEntity();
-    try light.set(light_2, .position, vec3(0, 1, -0.5));
+    try light.set(light_2, .position, vec3(0, 1.5, -0.5));
     try light.set(light_2, .color, vec4(0, 0, 1, 1));
+    try light.set(light_2, .radius, 0.05);
 
     // Camera
     const main_camera = try camera.newEntity();

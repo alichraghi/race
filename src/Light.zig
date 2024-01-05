@@ -21,67 +21,59 @@ pub const Mod = mach.Mod(@This());
 pub const components = struct {
     pub const position = Vec3;
     pub const color = Vec4;
+    pub const radius = f32;
 };
 
 pipeline: *gpu.RenderPipeline,
-uniform_buf: *gpu.Buffer,
+camera_uniform_buf: *gpu.Buffer,
+light_uniform_buf: *gpu.Buffer,
+light_uniform_stride: u32,
 bind_group_layout: *gpu.BindGroupLayout,
 bind_group: *gpu.BindGroup,
-uniform_stride: u32,
+show_points: bool,
 
-pub const UBO = extern struct {
-    projection: Mat4x4,
-    view: Mat4x4,
-    light_position: Vec3,
-    light_color: Vec4,
-
-    pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
-        0,
-        .{ .vertex = true, .fragment = true },
-        .uniform,
-        true,
-        0,
-    );
+pub const Uniform = struct {
+    position: Vec3,
+    color: Vec4,
+    radius: f32,
 };
 
 pub const local = struct {
-    pub fn init(light: *Mod, lights_capacity: u32) !void {
+    pub fn init(light: *Mod, lights_capacity: u32, show_points: bool) !void {
         const shader_module = core.device.createShaderModuleWGSL("light.wgsl", @embedFile("light.wgsl"));
         defer shader_module.release();
 
-        const blend = gpu.BlendState{};
-        const color_target = gpu.ColorTargetState{
-            .format = core.descriptor.format,
-            .blend = &blend,
-            .write_mask = gpu.ColorWriteMaskFlags.all,
-        };
-        const fragment = gpu.FragmentState.init(.{
-            .module = shader_module,
-            .entry_point = "frag_main",
-            .targets = &.{color_target},
-        });
-
         var limits = gpu.SupportedLimits{};
         _ = core.device.getLimits(&limits);
-        const uniform_stride = math.ceilToNextMultiple(
-            @sizeOf(UBO),
+
+        const camera_uniform_buf = core.device.createBuffer(&.{
+            .usage = .{ .uniform = true, .copy_dst = true },
+            .size = @sizeOf(Camera.Uniform),
+            .mapped_at_creation = .false,
+        });
+
+        const light_uniform_stride = math.ceilToNextMultiple(
+            @sizeOf(Uniform),
             limits.limits.min_uniform_buffer_offset_alignment,
         );
-
-        const uniform_buf = core.device.createBuffer(&.{
+        const light_uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = lights_capacity * uniform_stride,
+            .size = lights_capacity * light_uniform_stride,
             .mapped_at_creation = .false,
         });
 
         const bind_group_layout = core.device.createBindGroupLayout(
-            &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{UBO.bind_group_layout_entry} }),
+            &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
+                gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, true, 0),
+            } }),
         );
         const bind_group = core.device.createBindGroup(
             &gpu.BindGroup.Descriptor.init(.{
                 .layout = bind_group_layout,
                 .entries = &.{
-                    gpu.BindGroup.Entry.buffer(0, uniform_buf, 0, uniform_stride),
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(Camera.Uniform)),
+                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
                 },
             }),
         );
@@ -89,9 +81,18 @@ pub const local = struct {
         const pipeline_layout = core.device.createPipelineLayout(
             &gpu.PipelineLayout.Descriptor.init(.{ .bind_group_layouts = &.{bind_group_layout} }),
         );
+
         const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
             .layout = pipeline_layout,
-            .fragment = &fragment,
+            .fragment = &gpu.FragmentState.init(.{
+                .module = shader_module,
+                .entry_point = "frag_main",
+                .targets = &.{.{
+                    .format = core.descriptor.format,
+                    .blend = &.{},
+                    .write_mask = gpu.ColorWriteMaskFlags.all,
+                }},
+            }),
             .vertex = gpu.VertexState.init(.{
                 .module = shader_module,
                 .entry_point = "vertex_main",
@@ -108,10 +109,12 @@ pub const local = struct {
 
         light.state = .{
             .pipeline = pipeline,
-            .uniform_buf = uniform_buf,
+            .camera_uniform_buf = camera_uniform_buf,
+            .light_uniform_buf = light_uniform_buf,
+            .light_uniform_stride = light_uniform_stride,
             .bind_group_layout = bind_group_layout,
             .bind_group = bind_group,
-            .uniform_stride = uniform_stride,
+            .show_points = show_points,
         };
     }
 
@@ -122,30 +125,35 @@ pub const local = struct {
     }
 
     pub fn render(engine: *Engine.Mod, light: *Mod, camera_mod: *Camera.Mod, camera: mach.ecs.EntityID) !void {
+        if (!light.state.show_points) return;
+
         engine.state.pass.setPipeline(light.state.pipeline);
 
-        var archetypes_iter = engine.entities.query(.{ .all = &.{
-            .{ .light = &.{
-                .position,
-                .color,
-            } },
-        } });
+        core.queue.writeBuffer(
+            light.state.camera_uniform_buf,
+            0,
+            &[_]Camera.Uniform{.{
+                .projection = camera_mod.get(camera, .projection).?,
+                .view = camera_mod.get(camera, .view).?,
+            }},
+        );
 
+        var archetypes_iter = engine.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
         while (archetypes_iter.next()) |archetype| {
             for (
                 archetype.slice(.light, .position),
                 archetype.slice(.light, .color),
+                archetype.slice(.light, .radius),
                 0..,
-            ) |position, color, i| {
-                const buffer_offset = @as(u32, @intCast(i)) * light.state.uniform_stride;
+            ) |position, color, radius, i| {
+                const buffer_offset = @as(u32, @intCast(i)) * light.state.light_uniform_stride;
                 core.queue.writeBuffer(
-                    light.state.uniform_buf,
+                    light.state.light_uniform_buf,
                     buffer_offset,
-                    &[_]UBO{.{
-                        .projection = camera_mod.get(camera, .projection).?,
-                        .view = camera_mod.get(camera, .view).?,
-                        .light_position = position, // TODO: x is reverted!?
-                        .light_color = color,
+                    &[_]Uniform{.{
+                        .position = position, // TODO: x is reverted!?
+                        .color = color,
+                        .radius = radius,
                     }},
                 );
                 engine.state.pass.setBindGroup(0, light.state.bind_group, &.{buffer_offset});
