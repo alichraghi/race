@@ -18,7 +18,7 @@ timer: core.Timer,
 depth_texture: *gpu.Texture,
 depth_view: *gpu.TextureView,
 
-dragon: mach.ecs.EntityID,
+wrench: mach.ecs.EntityID,
 quad: mach.ecs.EntityID,
 main_camera: mach.ecs.EntityID,
 
@@ -46,61 +46,46 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     try object.send(.init, .{10});
     try light.send(.init, .{ 10, true });
 
-    const quad_m3d = try std.fs.cwd().openFile("assets/quad.m3d", .{});
-    defer quad_m3d.close();
-    const quad_data = try quad_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
-    defer allocator.free(quad_data);
-
     const quad = try object.newEntity();
-    const quad_model = try Model.initFromM3D(allocator, quad_data);
+    const quad_model = try Model.initFromFile(allocator, "assets/quad.m3d");
     try object.set(quad, .model, quad_model);
     try object.set(quad, .transform, .{
         .translation = vec3(0, 0, 0),
         .scale = vec3(3, 0.01, 3),
     });
 
-    const cube_m3d = try std.fs.cwd().openFile("assets/cube.m3d", .{});
-    defer cube_m3d.close();
-    const cube_data = try cube_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
-    defer allocator.free(cube_data);
-
     const cube = try object.newEntity();
-    const cube_model = try Model.initFromM3D(allocator, cube_data);
+    const cube_model = try Model.initFromFile(allocator, "assets/cube.m3d");
     try object.set(cube, .model, cube_model);
     try object.set(cube, .transform, .{
         .translation = vec3(-1, 0.5, -0.5),
         .scale = vec3(0.5, 0.5, 0.5),
     });
 
-    const dragon_m3d = try std.fs.cwd().openFile("assets/monkey.m3d", .{});
-    defer dragon_m3d.close();
-    const dragon_data = try dragon_m3d.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
-    defer allocator.free(dragon_data);
-
-    const dragon = try object.newEntity();
-    const dragon_model = try Model.initFromM3D(allocator, dragon_data);
-    try object.set(dragon, .model, dragon_model);
-    try object.set(dragon, .transform, .{
+    const wrench = try object.newEntity();
+    const wrench_model = try Model.initFromFile(allocator, "assets/wrench.m3d");
+    try object.set(wrench, .model, wrench_model);
+    try object.set(wrench, .transform, .{
         .translation = vec3(1, 0.5, 0.5),
         .rotation = vec3(0, math.pi, 0),
         .scale = vec3(0.5, 0.5, 0.5),
     });
 
     // Light
-    const light_0 = try light.newEntity();
-    try light.set(light_0, .position, vec3(1, 2, 0));
-    try light.set(light_0, .color, vec4(0, 1, 0, 1));
-    try light.set(light_0, .radius, 0.05);
+    const light_red = try light.newEntity();
+    try light.set(light_red, .position, vec3(1, 1.5, 0));
+    try light.set(light_red, .color, vec4(0, 1, 0, 1));
+    try light.set(light_red, .radius, 0.05);
 
-    const light_1 = try light.newEntity();
-    try light.set(light_1, .position, vec3(-1, 2, 0));
-    try light.set(light_1, .color, vec4(1, 0, 0, 1));
-    try light.set(light_1, .radius, 0.05);
+    const light_green = try light.newEntity();
+    try light.set(light_green, .position, vec3(-1, 1.5, 0));
+    try light.set(light_green, .color, vec4(1, 0, 0, 1));
+    try light.set(light_green, .radius, 0.05);
 
-    const light_2 = try light.newEntity();
-    try light.set(light_2, .position, vec3(0, 2, -1));
-    try light.set(light_2, .color, vec4(0, 0, 1, 1));
-    try light.set(light_2, .radius, 0.05);
+    const light_blue = try light.newEntity();
+    try light.set(light_blue, .position, vec3(0, 1.5, -1));
+    try light.set(light_blue, .color, vec4(0, 0, 1, 1));
+    try light.set(light_blue, .radius, 0.05);
 
     // Camera
     const main_camera = try camera.newEntity();
@@ -115,7 +100,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
         .timer = try core.Timer.start(),
         .depth_texture = depth_texture,
         .depth_view = depth_view,
-        .dragon = dragon,
+        .wrench = wrench,
         .quad = quad,
         .main_camera = main_camera,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
@@ -171,8 +156,8 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, camera: *Camera.Mod, object: *Objec
         .depth_store_op = .store,
     } });
 
-    // try object.set(game.state.dragon, .transform, .{
-    //     .rotation = vec3(0, object.get(game.state.dragon, .transform).?.rotation.y() + 0.01, 0),
+    // try object.set(game.state.wrench, .transform, .{
+    //     .rotation = vec3(0, object.get(game.state.wrench, .transform).?.rotation.y() + 0.01, 0),
     // });
     try object.send(.render, .{game.state.main_camera});
     try light.send(.render, .{game.state.main_camera});

@@ -8,12 +8,7 @@
         "README.md",
     },
     .dependencies = .{
-        // .mach_core = .{
-        //     .url = "https://pkg.machengine.org/mach-core/cce02fb96ca787378289c5855b381f0ca9f3e090.tar.gz",
-        //     .hash = "122096b39d9266d275b780df4d63b1afe6e9a3726f19766baf74b34af3f092532cd3",
-        // },
         .mach = .{
-            // .path = "../mach",
             .url = "https://pkg.machengine.org/mach/260802f7771c651246930455dfd7de7a75c9869a.tar.gz",
             .hash = "1220a2351f6f6f261a9a1f7c17a412acc77bdaa2204daabb0b0dde03f768981a0044",
         },
@@ -24,6 +19,10 @@
         .model3d = .{
             .url = "https://pkg.machengine.org/mach-model3d/8d94416c815e9f151806e87b9daa54111a7d6d39.tar.gz",
             .hash = "1220d4b32bf9d74efb498a939b81b5f1c77bea213a346b88d06ae079836d2dc84aff",
+        },
+        .zigimg = .{
+            .url = "https://github.com/zigimg/zigimg/archive/c16565d659526f1943444950b0f5857037ce0c9c.tar.gz",
+            .hash = "122068ede06d793e00d5c15b2f0c8209d284031f9c91eb89805f1b607eadf6c6b3a2",
         },
     },
 }

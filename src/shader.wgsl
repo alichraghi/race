@@ -23,12 +23,15 @@ struct Model {
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> light: LightList;
 @group(0) @binding(2) var<uniform> model: Model;
+@group(0) @binding(3) var diffuse_sampler: sampler;
+@group(0) @binding(4) var texture: texture_2d<f32>;
 
 struct Output {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec3<f32>,
-    @location(1) position_world: vec3<f32>,
-    @location(2) normal_world: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) position_world: vec3<f32>,
+    @location(3) normal_world: vec3<f32>,
 };
         
 @vertex
@@ -43,8 +46,10 @@ fn vertex_main(
     var output: Output;
     output.position = camera.projection * camera.view * position_world;
     output.color = color;
+    output.uv = uv;
     output.position_world = position_world.xyz;
     output.normal_world = normalize(model.normal * normal);
+
     return output;
 }
 
@@ -76,5 +81,6 @@ fn frag_main(in: Output) -> @location(0) vec4<f32> {
         specular_light += intensity * blinn_term;
     }
   
-    return vec4(diffuse_light * in.color + specular_light * in.color, 1.0);
+    let color = textureSample(texture, diffuse_sampler, in.uv);
+    return vec4(diffuse_light * color.xyz + specular_light * in.color, 1.0);
 }

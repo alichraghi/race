@@ -3,6 +3,7 @@ const mach = @import("mach");
 const Model = @import("Model.zig");
 const Camera = @import("Camera.zig");
 const Light = @import("Light.zig");
+const Texture = @import("Texture.zig");
 const math = @import("math.zig");
 const core = mach.core;
 const Engine = mach.Engine;
@@ -92,11 +93,15 @@ pub const local = struct {
             .mapped_at_creation = .false,
         });
 
+        const marble_texture = try Texture.initFromFile(std.heap.page_allocator, "assets/missing.png");
+
         const bind_group_layout = core.device.createBindGroupLayout(
             &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
                 gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
                 gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
                 gpu.BindGroupLayout.Entry.buffer(2, .{ .vertex = true }, .uniform, true, 0),
+                gpu.BindGroupLayout.Entry.sampler(3, .{ .fragment = true }, .filtering),
+                gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .float, .dimension_2d, false),
             } }),
         );
         const bind_group = core.device.createBindGroup(
@@ -106,6 +111,8 @@ pub const local = struct {
                     gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(Camera.Uniform)),
                     gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, @sizeOf(LightUniform)),
                     gpu.BindGroup.Entry.buffer(2, model_uniform_buf, 0, model_uniform_stride),
+                    gpu.BindGroup.Entry.sampler(3, marble_texture.sampler),
+                    gpu.BindGroup.Entry.textureView(4, marble_texture.view),
                 },
             }),
         );

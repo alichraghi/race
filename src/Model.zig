@@ -47,6 +47,20 @@ pub fn init(vertices: []const Vertex, indices: ?[]const u32) Model {
     };
 }
 
+pub fn initFromFile(allocator: std.mem.Allocator, path: []const u8) !Model {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    const data = try file.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
+    defer allocator.free(data);
+
+    const ext = std.fs.path.extension(path);
+    if (std.mem.eql(u8, ext, ".m3d")) {
+        return initFromM3D(allocator, data);
+    }
+
+    return error.UnknownFormat;
+}
+
 pub fn initFromM3D(allocator: std.mem.Allocator, data: [:0]const u8) !Model {
     const m3d_model = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
 
