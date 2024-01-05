@@ -51,17 +51,30 @@ fn vertex_main(
 @fragment
 fn frag_main(in: Output) -> @location(0) vec4<f32> {
     var diffuse_light = light.ambient_color.xyz * light.ambient_color.w;
+    var specular_light = vec3(0.0);
     let surface_normal = normalize(in.normal_world);
+
+    let camera_position_wolrd = transpose(camera.view)[3].xyz;
+    let view_direction = normalize(camera_position_wolrd - in.position_world);
 
     for (var i: u32 = 0; i < light.len; i++) {
         let light = light.lights[i];
-        let direction_to_light = light.position.xyz - in.position_world;
+        var direction_to_light = light.position.xyz - in.position_world;
         let attenuation = 1.0 / dot(direction_to_light, direction_to_light); // distance squared
-        let cos_ang_incidence = max(dot(surface_normal, normalize(direction_to_light)), 0);
+        direction_to_light = normalize(direction_to_light);
+
+        let cos_ang_incidence = max(dot(surface_normal, direction_to_light), 0);
         let intensity = light.color.xyz * light.color.w * attenuation;
 
         diffuse_light += intensity * cos_ang_incidence;
+
+        // Specular lighting
+        let half_angle = normalize(direction_to_light + view_direction);
+        var blinn_term = dot(surface_normal, half_angle);
+        blinn_term = clamp(blinn_term, 0, 1);
+        blinn_term = pow(blinn_term, 32); // higher -> shareper highlight
+        specular_light += intensity * blinn_term;
     }
   
-    return vec4(diffuse_light * in.color, 1.0);
+    return vec4(diffuse_light * in.color + specular_light * in.color, 1.0);
 }

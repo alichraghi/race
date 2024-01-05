@@ -67,18 +67,6 @@ pub const local = struct {
         const shader_module = core.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
         defer shader_module.release();
 
-        const blend = gpu.BlendState{};
-        const color_target = gpu.ColorTargetState{
-            .format = core.descriptor.format,
-            .blend = &blend,
-            .write_mask = gpu.ColorWriteMaskFlags.all,
-        };
-        const fragment = gpu.FragmentState.init(.{
-            .module = shader_module,
-            .entry_point = "frag_main",
-            .targets = &.{color_target},
-        });
-
         var limits = gpu.SupportedLimits{};
         _ = core.device.getLimits(&limits);
 
@@ -106,7 +94,7 @@ pub const local = struct {
 
         const bind_group_layout = core.device.createBindGroupLayout(
             &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
-                gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
                 gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
                 gpu.BindGroupLayout.Entry.buffer(2, .{ .vertex = true }, .uniform, true, 0),
             } }),
@@ -127,7 +115,15 @@ pub const local = struct {
         );
         const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
             .layout = pipeline_layout,
-            .fragment = &fragment,
+            .fragment = &gpu.FragmentState.init(.{
+                .module = shader_module,
+                .entry_point = "frag_main",
+                .targets = &.{.{
+                    .format = core.descriptor.format,
+                    .blend = &.{},
+                    .write_mask = gpu.ColorWriteMaskFlags.all,
+                }},
+            }),
             .vertex = gpu.VertexState.init(.{
                 .module = shader_module,
                 .entry_point = "vertex_main",

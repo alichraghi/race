@@ -43,11 +43,15 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> Output {
     return output;
 }
 
+const pi = 3.1415926538;
+
 @fragment
 fn frag_main(in: Output) -> @location(0) vec4<f32> {
     let dis = sqrt(dot(in.offset, in.offset));
     if (dis >= 1.0) {
       discard;
     }
-    return light.color;
+
+    let cos_dis = 0.5 * (cos(dis * pi) + 1.0);
+    return vec4(light.color.xyz + cos_dis, cos_dis);
 }

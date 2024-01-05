@@ -46,9 +46,13 @@ pub const local = struct {
         var limits = gpu.SupportedLimits{};
         _ = core.device.getLimits(&limits);
 
+        const camera_uniform_size = math.ceilToNextMultiple(
+            @sizeOf(Camera.Uniform),
+            limits.limits.min_uniform_buffer_offset_alignment,
+        );
         const camera_uniform_buf = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = @sizeOf(Camera.Uniform),
+            .size = camera_uniform_size,
             .mapped_at_creation = .false,
         });
 
@@ -72,7 +76,7 @@ pub const local = struct {
             &gpu.BindGroup.Descriptor.init(.{
                 .layout = bind_group_layout,
                 .entries = &.{
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(Camera.Uniform)),
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_size),
                     gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
                 },
             }),
@@ -89,7 +93,13 @@ pub const local = struct {
                 .entry_point = "frag_main",
                 .targets = &.{.{
                     .format = core.descriptor.format,
-                    .blend = &.{},
+                    .blend = &.{
+                        .color = .{
+                            .operation = .add,
+                            .src_factor = .src_alpha,
+                            .dst_factor = .one_minus_src_alpha,
+                        },
+                    },
                     .write_mask = gpu.ColorWriteMaskFlags.all,
                 }},
             }),
