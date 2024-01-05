@@ -1,6 +1,7 @@
 const std = @import("std");
 const mach = @import("mach");
 const M3d = @import("model3d");
+const wavefront = @import("wavefront.zig");
 const math = @import("math.zig");
 const core = mach.core;
 const gpu = core.gpu;
@@ -56,9 +57,62 @@ pub fn initFromFile(allocator: std.mem.Allocator, path: []const u8) !Model {
     const ext = std.fs.path.extension(path);
     if (std.mem.eql(u8, ext, ".m3d")) {
         return initFromM3D(allocator, data);
+    } else if (std.mem.eql(u8, ext, ".obj")) {
+        return initFromWavefront(allocator, data);
     }
 
     return error.UnknownFormat;
+}
+
+/// NOTE: Wavefront isn't mean to be used. this is only for debugging purpose
+pub fn initFromWavefront(allocator: std.mem.Allocator, data: [:0]const u8) !Model {
+    var fbs = std.io.fixedBufferStream(data);
+    const model = try wavefront.load(allocator, fbs.reader());
+
+    var vertices = std.ArrayList(Vertex).init(allocator);
+    defer vertices.deinit();
+
+    var indices = std.ArrayList(u32).init(allocator);
+    defer indices.deinit();
+
+    for (model.faces) |face| {
+        if (face.vertices.len != 3) {
+            @panic("Model must be triangulated!");
+        }
+
+        for (face.vertices) |src_vtx| {
+            var dst_vertex = Vertex{
+                .position = vec3(
+                    model.positions[src_vtx.position].x(),
+                    model.positions[src_vtx.position].y(),
+                    model.positions[src_vtx.position].z(),
+                ),
+                .normal = undefined,
+                .uv = undefined,
+            };
+            if (src_vtx.normal) |i| {
+                dst_vertex.normal = model.normals[i];
+            } else {
+                dst_vertex.normal = vec3(0, 0, 0);
+            }
+            if (src_vtx.textureCoordinate) |i| {
+                dst_vertex.uv = vec2(
+                    model.textureCoordinates[i].x(),
+                    model.textureCoordinates[i].y(),
+                );
+            } else {
+                dst_vertex.uv = vec2(0, 0);
+            }
+
+            // Deduplicate all vertices
+            const index = vertices.items.len;
+            try vertices.append(dst_vertex);
+
+            try indices.append(@as(u32, @intCast(index)));
+        }
+    }
+
+    return init(try vertices.toOwnedSlice(), try indices.toOwnedSlice());
 }
 
 pub fn initFromM3D(allocator: std.mem.Allocator, data: [:0]const u8) !Model {

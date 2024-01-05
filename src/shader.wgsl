@@ -81,6 +81,6 @@ fn frag_main(in: Output) -> @location(0) vec4<f32> {
         specular_light += intensity * blinn_term;
     }
   
-    let color = textureSample(texture, diffuse_sampler, in.uv);
-    return vec4(diffuse_light * color.xyz + specular_light * in.color, 1.0);
+    let color = textureSample(texture, diffuse_sampler, in.uv).xyz;
+    return vec4(diffuse_light * color + specular_light * in.color, 1.0);
 }
