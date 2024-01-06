@@ -48,74 +48,56 @@ pub fn init(vertices: []const Vertex, indices: ?[]const u32) Model {
     };
 }
 
-pub fn initFromFile(allocator: std.mem.Allocator, path: []const u8) !Model {
+pub fn initFromFile(path: []const u8) !Model {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    const data = try file.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
-    defer allocator.free(data);
+    const data = try file.readToEndAllocOptions(core.allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
+    defer core.allocator.free(data);
 
     const ext = std.fs.path.extension(path);
     if (std.mem.eql(u8, ext, ".m3d")) {
-        return initFromM3D(allocator, data);
+        return initFromM3D(data);
     } else if (std.mem.eql(u8, ext, ".obj")) {
-        return initFromWavefront(allocator, data);
+        return initFromWavefront(data);
     }
 
     return error.UnknownFormat;
 }
 
 /// NOTE: Wavefront isn't mean to be used. this is only for debugging purpose
-pub fn initFromWavefront(allocator: std.mem.Allocator, data: [:0]const u8) !Model {
+pub fn initFromWavefront(data: [:0]const u8) !Model {
     var fbs = std.io.fixedBufferStream(data);
-    const model = try wavefront.load(allocator, fbs.reader());
+    var model = try wavefront.load(core.allocator, fbs.reader());
+    defer model.deinit();
 
-    var vertices = std.ArrayList(Vertex).init(allocator);
+    var vertices = std.ArrayList(Vertex).init(core.allocator);
     defer vertices.deinit();
 
-    var indices = std.ArrayList(u32).init(allocator);
+    var indices = std.ArrayList(u32).init(core.allocator);
     defer indices.deinit();
 
     for (model.faces) |face| {
-        if (face.vertices.len != 3) {
-            @panic("Model must be triangulated!");
-        }
+        std.debug.assert(face.vertices.len == 3);
 
         for (face.vertices) |src_vtx| {
-            var dst_vertex = Vertex{
-                .position = vec3(
-                    model.positions[src_vtx.position].x(),
-                    model.positions[src_vtx.position].y(),
-                    model.positions[src_vtx.position].z(),
-                ),
-                .normal = undefined,
-                .uv = undefined,
+            const position = model.positions[src_vtx.position];
+            const normal = if (src_vtx.normal) |i| model.normals[i] else vec3(0, 0, 0);
+            const uv = if (src_vtx.uv) |i| model.uvs[i] else vec3(0, 0, 0);
+            const dst_vertex = Vertex{
+                .position = vec3(position.x(), position.y(), position.z()),
+                .normal = normal,
+                .uv = vec2(uv.x(), uv.y()),
             };
-            if (src_vtx.normal) |i| {
-                dst_vertex.normal = model.normals[i];
-            } else {
-                dst_vertex.normal = vec3(0, 0, 0);
-            }
-            if (src_vtx.textureCoordinate) |i| {
-                dst_vertex.uv = vec2(
-                    model.textureCoordinates[i].x(),
-                    model.textureCoordinates[i].y(),
-                );
-            } else {
-                dst_vertex.uv = vec2(0, 0);
-            }
-
-            // Deduplicate all vertices
-            const index = vertices.items.len;
+            const index: u32 = @intCast(vertices.items.len);
             try vertices.append(dst_vertex);
-
-            try indices.append(@as(u32, @intCast(index)));
+            try indices.append(index);
         }
     }
 
-    return init(try vertices.toOwnedSlice(), try indices.toOwnedSlice());
+    return init(vertices.items, indices.items);
 }
 
-pub fn initFromM3D(allocator: std.mem.Allocator, data: [:0]const u8) !Model {
+pub fn initFromM3D(data: [:0]const u8) !Model {
     const m3d_model = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
 
     const vertex_count = m3d_model.handle.numvertex;
@@ -124,12 +106,12 @@ pub fn initFromM3D(allocator: std.mem.Allocator, data: [:0]const u8) !Model {
     const vertices = m3d_model.handle.vertex[0..vertex_count];
 
     var vertex_writer = try mach.gfx.util.VertexWriter(Vertex, u32).init(
-        allocator,
+        core.allocator,
         @intCast(index_count),
         @intCast(vertex_count),
         @intCast(face_count * 3),
     );
-    defer vertex_writer.deinit(allocator);
+    defer vertex_writer.deinit(core.allocator);
 
     var extent_min = Vec2.splat(std.math.floatMax(f32));
     var extent_max = Vec2.splat(std.math.floatMin(f32));

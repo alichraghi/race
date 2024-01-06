@@ -40,7 +40,7 @@ const Vec4 = math.Vec4;
 pub const Vertex = struct {
     position: usize,
     normal: ?usize,
-    textureCoordinate: ?usize,
+    uv: ?usize,
 };
 
 pub const Face = struct {
@@ -66,7 +66,7 @@ pub const Model = struct {
 
     positions: []Vec4,
     normals: []Vec3,
-    textureCoordinates: []Vec3,
+    uvs: []Vec3,
     faces: []Face,
     lines: []Line,
     objects: []Object,
@@ -74,7 +74,7 @@ pub const Model = struct {
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.positions);
         self.allocator.free(self.normals);
-        self.allocator.free(self.textureCoordinates);
+        self.allocator.free(self.uvs);
         self.allocator.free(self.faces);
         self.allocator.free(self.lines);
         self.allocator.free(self.objects);
@@ -87,7 +87,7 @@ fn parseVertexSpec(spec: []const u8) !Vertex {
     var vertex = Vertex{
         .position = 0,
         .normal = null,
-        .textureCoordinate = null,
+        .uv = null,
     };
 
     var iter = std.mem.split(u8, spec, "/");
@@ -95,7 +95,7 @@ fn parseVertexSpec(spec: []const u8) !Vertex {
     while (iter.next()) |part| {
         switch (state) {
             0 => vertex.position = (try std.fmt.parseInt(usize, part, 10)) - 1,
-            1 => vertex.textureCoordinate = if (!std.mem.eql(u8, part, "")) (try std.fmt.parseInt(usize, part, 10)) - 1 else null,
+            1 => vertex.uv = if (!std.mem.eql(u8, part, "")) (try std.fmt.parseInt(usize, part, 10)) - 1 else null,
             2 => vertex.normal = if (!std.mem.eql(u8, part, "")) (try std.fmt.parseInt(usize, part, 10)) - 1 else null,
             else => return error.InvalidFormat,
         }
@@ -123,8 +123,8 @@ pub fn load(
     defer positions.deinit();
     var normals = std.ArrayList(Vec3).init(allocator);
     defer normals.deinit();
-    var textureCoordinates = std.ArrayList(Vec3).init(allocator);
-    defer textureCoordinates.deinit();
+    var uvs = std.ArrayList(Vec3).init(allocator);
+    defer uvs.deinit();
     var faces = std.ArrayList(Face).init(allocator);
     defer faces.deinit();
     var lines = std.ArrayList(Line).init(allocator);
@@ -134,7 +134,7 @@ pub fn load(
 
     try positions.ensureTotalCapacity(10_000);
     try normals.ensureTotalCapacity(10_000);
-    try textureCoordinates.ensureTotalCapacity(10_000);
+    try uvs.ensureTotalCapacity(10_000);
     try faces.ensureTotalCapacity(10_000);
     try lines.ensureTotalCapacity(10_000);
     try objects.ensureTotalCapacity(100);
@@ -187,7 +187,7 @@ pub fn load(
             }
             if (state < 1) // vt u v w, with u is required, v and w are optional
                 return error.InvalidFormat;
-            try textureCoordinates.append(texcoord);
+            try uvs.append(texcoord);
         }
         // parse normals
         else if (std.mem.startsWith(u8, line, "vn ")) {
@@ -318,7 +318,7 @@ pub fn load(
 
         .positions = try positions.toOwnedSlice(),
         .normals = try normals.toOwnedSlice(),
-        .textureCoordinates = try textureCoordinates.toOwnedSlice(),
+        .uvs = try uvs.toOwnedSlice(),
         .faces = try faces.toOwnedSlice(),
         .lines = try lines.toOwnedSlice(),
         .objects = try objects.toOwnedSlice(),

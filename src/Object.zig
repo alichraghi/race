@@ -93,7 +93,7 @@ pub const local = struct {
             .mapped_at_creation = .false,
         });
 
-        const marble_texture = try Texture.initFromFile(std.heap.page_allocator, "assets/missing.png");
+        const marble_texture = try Texture.initFromFile("assets/missing.png");
 
         const bind_group_layout = core.device.createBindGroupLayout(
             &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{

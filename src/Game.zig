@@ -32,9 +32,6 @@ camera_front: Vec3,
 pub const name = .game;
 pub const Mod = mach.Mod(@This());
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-const allocator = gpa.allocator();
-
 pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
     core.setCursorMode(.disabled);
 
@@ -47,7 +44,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     try light.send(.init, .{ 10, true });
 
     const quad = try object.newEntity();
-    const quad_model = try Model.initFromFile(allocator, "assets/quad.m3d");
+    const quad_model = try Model.initFromFile("assets/quad.m3d");
     try object.set(quad, .model, quad_model);
     try object.set(quad, .transform, .{
         .translation = vec3(0, 0, 0),
@@ -55,7 +52,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     });
 
     const cube = try object.newEntity();
-    const cube_model = try Model.initFromFile(allocator, "assets/cube.m3d");
+    const cube_model = try Model.initFromFile("assets/cube.m3d");
     try object.set(cube, .model, cube_model);
     try object.set(cube, .transform, .{
         .translation = vec3(-1, 0.5, -0.5),
@@ -63,7 +60,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     });
 
     const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile(allocator, "assets/wrench.m3d");
+    const wrench_model = try Model.initFromFile("assets/wrench.obj");
     try object.set(wrench, .model, wrench_model);
     try object.set(wrench, .transform, .{
         .translation = vec3(1, 0.5, 0.5),
@@ -115,7 +112,6 @@ pub fn deinit(game: *Mod, object: *Object.Mod) !void {
     try object.send(.deinit, .{});
     game.state.depth_texture.release();
     game.state.depth_view.release();
-    _ = gpa.deinit();
 }
 
 pub fn tick(game: *Mod, engine: *Engine.Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {

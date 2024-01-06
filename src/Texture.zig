@@ -9,22 +9,22 @@ const Texture = @This();
 sampler: *gpu.Sampler,
 view: *gpu.TextureView,
 
-pub fn initFromFile(allocator: std.mem.Allocator, path: []const u8) !Texture {
+pub fn initFromFile(path: []const u8) !Texture {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    const data = try file.readToEndAllocOptions(allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
-    defer allocator.free(data);
+    const data = try file.readToEndAllocOptions(core.allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
+    defer core.allocator.free(data);
 
     const ext = std.fs.path.extension(path);
     if (std.mem.eql(u8, ext, ".png")) {
-        return initFromPNG(allocator, data);
+        return initFromPNG(data);
     }
 
     return error.UnknownFormat;
 }
 
-pub fn initFromPNG(allocator: std.mem.Allocator, data: []const u8) !Texture {
-    var img = try zigimg.Image.fromMemory(allocator, data);
+pub fn initFromPNG(data: []const u8) !Texture {
+    var img = try zigimg.Image.fromMemory(core.allocator, data);
     defer img.deinit();
 
     const img_size = gpu.Extent3D{
@@ -67,8 +67,8 @@ pub fn initFromPNG(allocator: std.mem.Allocator, data: []const u8) !Texture {
     };
 }
 
-fn rgb24ToRgba32(allocator: std.mem.Allocator, in: []zigimg.color.Rgb24) !zigimg.color.PixelStorage {
-    const out = try zigimg.color.PixelStorage.init(allocator, .rgba32, in.len);
+fn rgb24ToRgba32(in: []zigimg.color.Rgb24) !zigimg.color.PixelStorage {
+    const out = try zigimg.color.PixelStorage.init(core.allocator, .rgba32, in.len);
     var i: usize = 0;
     while (i < in.len) : (i += 1) {
         out.rgba32[i] = zigimg.color.Rgba32{ .r = in[i].r, .g = in[i].g, .b = in[i].b, .a = 255 };
