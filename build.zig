@@ -7,6 +7,7 @@ pub fn build(b: *std.Build) !void {
 
     const model3d_dep = b.dependency("model3d", .{ .target = target, .optimize = optimize });
     const zigimg_dep = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
+    const ufbx_dep = b.dependency("ufbx", .{ .target = target, .optimize = optimize });
 
     const app = try mach.App.init(
         b,
@@ -23,6 +24,8 @@ pub fn build(b: *std.Build) !void {
         },
     );
 
+    app.compile.addIncludePath(ufbx_dep.path(""));
+    app.compile.addCSourceFile(.{ .file = ufbx_dep.path("ufbx.c"), .flags = &.{} });
     app.compile.linkLibrary(model3d_dep.artifact("mach-model3d"));
     try app.link();
 

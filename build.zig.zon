@@ -24,5 +24,9 @@
             .url = "https://github.com/zigimg/zigimg/archive/c16565d659526f1943444950b0f5857037ce0c9c.tar.gz",
             .hash = "122068ede06d793e00d5c15b2f0c8209d284031f9c91eb89805f1b607eadf6c6b3a2",
         },
+        .ufbx = .{
+            .url = "https://github.com/ufbx/ufbx/archive/fa5a5811cf5ac37d407188c819c7b19b0028dd65.tar.gz",
+            .hash = "1220a4466488b77712e45f26a8ef3b37ca158a6e6cd4064e67de9c5f18a541a1c431",
+        },
     },
 }
