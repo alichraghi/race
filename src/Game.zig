@@ -60,7 +60,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     });
 
     const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile("assets/wrench.obj");
+    const wrench_model = try Model.initFromFile("assets/wrench.fbx");
     try object.set(wrench, .model, wrench_model);
     try object.set(wrench, .transform, .{
         .translation = vec3(1, 0.5, 0.5),

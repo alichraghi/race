@@ -2,6 +2,7 @@ const std = @import("std");
 const mach = @import("mach");
 const M3d = @import("model3d");
 const wavefront = @import("wavefront.zig");
+const c = @cImport(@cInclude("ufbx.h"));
 const math = @import("math.zig");
 const core = mach.core;
 const gpu = core.gpu;
@@ -59,13 +60,14 @@ pub fn initFromFile(path: []const u8) !Model {
         return initFromM3D(data);
     } else if (std.mem.eql(u8, ext, ".obj")) {
         return initFromWavefront(data);
+    } else if (std.mem.eql(u8, ext, ".fbx")) {
+        return initFromFBX(data);
     }
 
     return error.UnknownFormat;
 }
 
-/// NOTE: Wavefront isn't mean to be used. this is only for debugging purpose
-pub fn initFromWavefront(data: [:0]const u8) !Model {
+pub fn initFromWavefront(data: []const u8) !Model {
     var fbs = std.io.fixedBufferStream(data);
     var model = try wavefront.load(core.allocator, fbs.reader());
     defer model.deinit();
@@ -95,6 +97,88 @@ pub fn initFromWavefront(data: [:0]const u8) !Model {
     }
 
     return init(vertices.items, indices.items);
+}
+
+pub fn initFromFBX(data: []const u8) !Model {
+    var err: c.ufbx_error = .{};
+    const opts = c.ufbx_load_opts{
+        .target_axes = .{
+            .right = c.UFBX_COORDINATE_AXIS_NEGATIVE_X,
+            .up = c.UFBX_COORDINATE_AXIS_POSITIVE_Y,
+            .front = c.UFBX_COORDINATE_AXIS_POSITIVE_Z,
+        },
+    };
+    const scene = c.ufbx_load_memory(data.ptr, data.len, &opts, &err);
+    if (err.type != c.UFBX_ERROR_NONE) return error.LoadingModel;
+    defer c.ufbx_free_scene(scene);
+
+    // We only support one mesh per file
+    const meshes = scene.*.unnamed_0.unnamed_0.meshes;
+    const mesh = meshes.data[0..meshes.count][0];
+
+    // Count the number of needed parts and temporary buffers
+    var max_parts: usize = 0;
+    var max_triangles: usize = 0;
+
+    // We need to render each material of the mesh in a separate part, so let's
+    // count the number of parts and maximum number of triangles needed.
+    for (mesh.*.material_parts.data[0..mesh.*.material_parts.count]) |part| {
+        if (part.num_triangles == 0) continue;
+        max_parts += 1;
+        max_triangles = @max(max_triangles, part.num_triangles);
+    }
+
+    const tri_indices = try core.allocator.alloc(u32, mesh.*.max_face_triangles * 3);
+    defer core.allocator.free(tri_indices);
+    const vertices = try core.allocator.alloc(Vertex, max_triangles * 3);
+    defer core.allocator.free(vertices);
+    const indices = try core.allocator.alloc(u32, max_triangles * 3);
+    defer core.allocator.free(indices);
+
+    var num_indices: u32 = 0;
+    for (mesh.*.faces.data[0..mesh.*.faces.count]) |face| {
+        const num_tris = c.ufbx_triangulate_face(tri_indices.ptr, tri_indices.len, mesh, face);
+
+        for (0..num_tris * 3) |vi| {
+            const ix = tri_indices[vi];
+
+            const pos = c.ufbx_get_vertex_vec3(&mesh.*.vertex_position, ix);
+            const normal = c.ufbx_get_vertex_vec3(&mesh.*.vertex_normal, ix);
+            const uv = if (mesh.*.vertex_uv.exists) c.ufbx_get_vertex_vec2(&mesh.*.vertex_uv, ix) else c.ufbx_vec2{};
+
+            vertices[num_indices] = .{
+                .position = vec3(
+                    @floatCast(pos.unnamed_0.unnamed_0.x),
+                    @floatCast(pos.unnamed_0.unnamed_0.y),
+                    @floatCast(pos.unnamed_0.unnamed_0.z),
+                ),
+                .normal = vec3(
+                    @floatCast(normal.unnamed_0.unnamed_0.x),
+                    @floatCast(normal.unnamed_0.unnamed_0.y),
+                    @floatCast(normal.unnamed_0.unnamed_0.z),
+                ),
+                .uv = vec2(
+                    @floatCast(uv.unnamed_0.unnamed_0.x),
+                    @floatCast(uv.unnamed_0.unnamed_0.y),
+                ),
+            };
+
+            num_indices += 1;
+        }
+    }
+
+    var streams: [1]c.ufbx_vertex_stream = .{.{
+        .data = vertices.ptr,
+        .vertex_count = num_indices,
+        .vertex_size = @sizeOf(Vertex),
+    }};
+
+    const num_vertices = c.ufbx_generate_indices(&streams, streams.len, indices.ptr, num_indices, null, &err);
+    if (err.type != c.UFBX_ERROR_NONE) {
+        return error.LoadingModel;
+    }
+
+    return init(vertices[0..num_vertices], indices[0..num_indices]);
 }
 
 pub fn initFromM3D(data: [:0]const u8) !Model {
