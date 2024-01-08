@@ -5,6 +5,7 @@ const Camera = @import("Camera.zig");
 const Object = @import("Object.zig");
 const Light = @import("Light.zig");
 const Model = @import("Model.zig");
+const Texture = @import("Texture.zig");
 const core = mach.core;
 const Engine = mach.Engine;
 const gpu = core.gpu;
@@ -44,45 +45,19 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     try light.send(.init, .{ 10, true });
 
     const quad = try object.newEntity();
-    const quad_model = try Model.initFromFile("assets/quad.m3d");
-    try object.set(quad, .model, quad_model);
-    try object.set(quad, .transform, .{
-        .translation = vec3(0, 0, 0),
-        .scale = vec3(3, 0.01, 3),
-    });
-
-    const cube = try object.newEntity();
-    const cube_model = try Model.initFromFile("assets/cube.m3d");
-    try object.set(cube, .model, cube_model);
-    try object.set(cube, .transform, .{
-        .translation = vec3(-1, 0.5, -0.5),
-        .scale = vec3(0.5, 0.5, 0.5),
-    });
-
-    const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile("assets/wrench.fbx");
-    try object.set(wrench, .model, wrench_model);
-    try object.set(wrench, .transform, .{
-        .translation = vec3(1, 0.5, 0.5),
-        .rotation = vec3(0, math.pi, 0),
-        .scale = vec3(0.5, 0.5, 0.5),
-    });
+    // BUG: uncomment this and line 60
+    // try object.send(.initEntity, .{ quad, 1, null });
+    // try object.set(quad, .transform, .{
+    //     .translation = vec3(0, 0, 0),
+    //     .scale = vec3(3, 0.01, 3),
+    // });
 
     // Light
-    const light_red = try light.newEntity();
-    try light.set(light_red, .position, vec3(1, 1.5, 0));
-    try light.set(light_red, .color, vec4(0, 1, 0, 1));
-    try light.set(light_red, .radius, 0.05);
-
     const light_green = try light.newEntity();
-    try light.set(light_green, .position, vec3(-1, 1.5, 0));
-    try light.set(light_green, .color, vec4(1, 0, 0, 1));
-    try light.set(light_green, .radius, 0.05);
-
-    const light_blue = try light.newEntity();
-    try light.set(light_blue, .position, vec3(0, 1.5, -1));
-    try light.set(light_blue, .color, vec4(0, 0, 1, 1));
-    try light.set(light_blue, .radius, 0.05);
+    try light.set(light_green, .position, vec3(1, 1.5, 0));
+    try light.set(light_green, .color, vec4(0, 1, 0, 1));
+    // BUG: uncomment this and line 48
+    // try light.set(light_green, .radius, 0.05);
 
     // Camera
     const main_camera = try camera.newEntity();
@@ -97,7 +72,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
         .timer = try core.Timer.start(),
         .depth_texture = depth_texture,
         .depth_view = depth_view,
-        .wrench = wrench,
+        .wrench = undefined,
         .quad = quad,
         .main_camera = main_camera,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),

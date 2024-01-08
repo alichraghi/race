@@ -21,27 +21,38 @@ pub const name = .object;
 pub const Mod = mach.Mod(@This());
 
 const max_lights = 10;
+const min_uniform_alignment = 256;
 
 pub const components = struct {
+    pub const pipeline = u8;
     pub const model = Model;
     pub const transform = Transform;
 };
 
-pipeline: *gpu.RenderPipeline,
-bind_group_layout: *gpu.BindGroupLayout,
-bind_group: *gpu.BindGroup,
+pipeline_keys: std.AutoArrayHashMapUnmanaged(PipelineKey, u8),
+pipelines: std.AutoArrayHashMapUnmanaged(u8, Pipeline),
+shader: *gpu.ShaderModule,
+camera_uniform: *gpu.Buffer,
+light_uniform: *gpu.Buffer,
 
-camera_uniform_buf: *gpu.Buffer,
-light_uniform_buf: *gpu.Buffer,
-model_uniform_buf: *gpu.Buffer,
-model_uniform_stride: u32,
+const PipelineKey = struct {
+    instance_capacity: u32,
+    texture: ?Texture,
+};
 
-pub const LightUniform = struct {
+const Pipeline = struct {
+    pipeline: *gpu.RenderPipeline,
+    bind_group: *gpu.BindGroup,
+    model_uniform: *gpu.Buffer,
+    model_uniform_stride: u32,
+};
+
+const LightUniform = struct {
     ambient_color: Vec4,
     lights: [max_lights]Light.Uniform,
     len: u32,
 
-    pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
+    const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
         1,
         .{ .vertex = true, .fragment = true },
         .uniform,
@@ -50,11 +61,11 @@ pub const LightUniform = struct {
     );
 };
 
-pub const Uniform = struct {
+const Uniform = struct {
     model: Mat4x4,
     normal: Mat3x3,
 
-    pub const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
+    const bind_group_layout_entry = gpu.BindGroupLayout.Entry.buffer(
         2,
         .{ .vertex = true, .fragment = true },
         .uniform,
@@ -64,32 +75,48 @@ pub const Uniform = struct {
 };
 
 pub const local = struct {
-    pub fn init(object: *Mod, objects_capacity: u32) !void {
-        const shader_module = core.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
-        defer shader_module.release();
-
-        var limits = gpu.SupportedLimits{};
-        _ = core.device.getLimits(&limits);
-
-        const camera_uniform_buf = core.device.createBuffer(&.{
+    pub fn init(object: *Mod) !void {
+        const shader = core.device.createShaderModuleWGSL("shader.wgsl", @embedFile("shader.wgsl"));
+        const camera_uniform = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
             .size = @sizeOf(Camera.Uniform),
             .mapped_at_creation = .false,
         });
-
-        const light_uniform_buf = core.device.createBuffer(&.{
+        const light_uniform = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
             .size = @sizeOf(LightUniform),
             .mapped_at_creation = .false,
         });
 
-        const model_uniform_stride = math.ceilToNextMultiple(
-            @sizeOf(Uniform),
-            limits.limits.min_uniform_buffer_offset_alignment,
-        );
-        const model_uniform_buf = core.device.createBuffer(&.{
+        object.state = .{
+            .pipeline_keys = .{},
+            .pipelines = .{},
+            .shader = shader,
+            .camera_uniform = camera_uniform,
+            .light_uniform = light_uniform,
+        };
+    }
+
+    pub fn initEntity(
+        object: *Mod,
+        entity: mach.ecs.EntityID,
+        instance_capacity: u32,
+        texture: ?Texture,
+    ) !void {
+        const gop = try object.state.pipeline_keys.getOrPut(core.allocator, .{
+            .instance_capacity = instance_capacity,
+            .texture = texture,
+        });
+
+        if (gop.found_existing) {
+            try object.set(entity, .pipeline, gop.value_ptr.*);
+            return;
+        }
+
+        const model_uniform_stride = math.ceilToNextMultiple(@sizeOf(Uniform), min_uniform_alignment);
+        const model_uniform = core.device.createBuffer(&.{
             .usage = .{ .uniform = true, .copy_dst = true },
-            .size = objects_capacity * model_uniform_stride,
+            .size = instance_capacity * model_uniform_stride,
             .mapped_at_creation = .false,
         });
 
@@ -104,13 +131,15 @@ pub const local = struct {
                 gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .float, .dimension_2d, false),
             } }),
         );
+        defer bind_group_layout.release();
+
         const bind_group = core.device.createBindGroup(
             &gpu.BindGroup.Descriptor.init(.{
                 .layout = bind_group_layout,
                 .entries = &.{
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(Camera.Uniform)),
-                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, @sizeOf(LightUniform)),
-                    gpu.BindGroup.Entry.buffer(2, model_uniform_buf, 0, model_uniform_stride),
+                    gpu.BindGroup.Entry.buffer(0, object.state.camera_uniform, 0, @sizeOf(Camera.Uniform)),
+                    gpu.BindGroup.Entry.buffer(1, object.state.light_uniform, 0, @sizeOf(LightUniform)),
+                    gpu.BindGroup.Entry.buffer(2, model_uniform, 0, model_uniform_stride),
                     gpu.BindGroup.Entry.sampler(3, marble_texture.sampler),
                     gpu.BindGroup.Entry.textureView(4, marble_texture.view),
                 },
@@ -123,7 +152,7 @@ pub const local = struct {
         const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
             .layout = pipeline_layout,
             .fragment = &gpu.FragmentState.init(.{
-                .module = shader_module,
+                .module = object.state.shader,
                 .entry_point = "frag_main",
                 .targets = &.{.{
                     .format = core.descriptor.format,
@@ -132,11 +161,10 @@ pub const local = struct {
                 }},
             }),
             .vertex = gpu.VertexState.init(.{
-                .module = shader_module,
+                .module = object.state.shader,
                 .entry_point = "vertex_main",
                 .buffers = &.{Model.Vertex.layout},
             }),
-            .primitive = .{},
             .depth_stencil = &.{
                 .format = .depth24_plus,
                 .depth_write_enabled = .true,
@@ -145,30 +173,118 @@ pub const local = struct {
         };
         const pipeline = core.device.createRenderPipeline(&pipeline_descriptor);
 
-        object.state = .{
+        gop.value_ptr.* = @intCast(object.state.pipeline_keys.count());
+        try object.state.pipelines.put(core.allocator, gop.value_ptr.*, .{
             .pipeline = pipeline,
-            .bind_group_layout = bind_group_layout,
             .bind_group = bind_group,
-            .camera_uniform_buf = camera_uniform_buf,
-            .light_uniform_buf = light_uniform_buf,
-            .model_uniform_buf = model_uniform_buf,
+            .model_uniform = model_uniform,
             .model_uniform_stride = model_uniform_stride,
+        });
+        try object.set(entity, .pipeline, gop.value_ptr.*);
+    }
+
+    pub fn initEntityy(
+        object: *Mod,
+        entity: mach.ecs.EntityID,
+        instance_capacity: u32,
+        texture: ?Texture,
+    ) !void {
+        const gop = try object.state.pipeline_keys.getOrPut(core.allocator, .{
+            .instance_capacity = instance_capacity,
+            .texture = texture,
+        });
+
+        if (gop.found_existing) {
+            try object.set(entity, .pipeline, gop.value_ptr.*);
+            return;
+        }
+
+        const model_uniform_stride = math.ceilToNextMultiple(@sizeOf(Uniform), min_uniform_alignment);
+        const model_uniform = core.device.createBuffer(&.{
+            .usage = .{ .uniform = true, .copy_dst = true },
+            .size = instance_capacity * model_uniform_stride,
+            .mapped_at_creation = .false,
+        });
+
+        const marble_texture = try Texture.initFromFile("assets/missing.png");
+
+        const bind_group_layout = core.device.createBindGroupLayout(
+            &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
+                gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.buffer(2, .{ .vertex = true }, .uniform, true, 0),
+                gpu.BindGroupLayout.Entry.sampler(3, .{ .fragment = true }, .filtering),
+                gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .float, .dimension_2d, false),
+            } }),
+        );
+        defer bind_group_layout.release();
+
+        const bind_group = core.device.createBindGroup(
+            &gpu.BindGroup.Descriptor.init(.{
+                .layout = bind_group_layout,
+                .entries = &.{
+                    gpu.BindGroup.Entry.buffer(0, object.state.camera_uniform, 0, @sizeOf(Camera.Uniform)),
+                    gpu.BindGroup.Entry.buffer(1, object.state.light_uniform, 0, @sizeOf(LightUniform)),
+                    gpu.BindGroup.Entry.buffer(2, model_uniform, 0, model_uniform_stride),
+                    gpu.BindGroup.Entry.sampler(3, marble_texture.sampler),
+                    gpu.BindGroup.Entry.textureView(4, marble_texture.view),
+                },
+            }),
+        );
+
+        const pipeline_layout = core.device.createPipelineLayout(
+            &gpu.PipelineLayout.Descriptor.init(.{ .bind_group_layouts = &.{bind_group_layout} }),
+        );
+        const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
+            .layout = pipeline_layout,
+            .fragment = &gpu.FragmentState.init(.{
+                .module = object.state.shader,
+                .entry_point = "frag_main",
+                .targets = &.{.{
+                    .format = core.descriptor.format,
+                    .blend = &.{},
+                    .write_mask = gpu.ColorWriteMaskFlags.all,
+                }},
+            }),
+            .vertex = gpu.VertexState.init(.{
+                .module = object.state.shader,
+                .entry_point = "vertex_main",
+                .buffers = &.{Model.Vertex.layout},
+            }),
+            .depth_stencil = &.{
+                .format = .depth24_plus,
+                .depth_write_enabled = .true,
+                .depth_compare = .less,
+            },
         };
+        const pipeline = core.device.createRenderPipeline(&pipeline_descriptor);
+
+        gop.value_ptr.* = @intCast(object.state.pipeline_keys.count());
+        try object.state.pipelines.put(core.allocator, gop.value_ptr.*, .{
+            .pipeline = pipeline,
+            .bind_group = bind_group,
+            .model_uniform = model_uniform,
+            .model_uniform_stride = model_uniform_stride,
+        });
+        try object.set(entity, .pipeline, gop.value_ptr.*);
     }
 
     pub fn deinit(object: *Mod) !void {
-        object.state.bind_group_layout.release();
-        object.state.bind_group.release();
-        object.state.camera_uniform_buf.release();
-        object.state.light_uniform_buf.release();
-        object.state.model_uniform_buf.release();
+        object.state.shader.release();
+        object.state.camera_uniform.release();
+        object.state.light_uniform.release();
+        object.state.pipeline_keys.deinit(core.allocator);
+        for (object.state.pipelines.values()) |pipeline| {
+            pipeline.pipeline.release();
+            pipeline.bind_group.release();
+            pipeline.model_uniform.release();
+        }
+        object.state.pipelines.deinit(core.allocator);
     }
 
     pub fn render(engine: *Engine.Mod, object: *Mod, camera_mod: *Camera.Mod, camera: mach.ecs.EntityID) !void {
-        engine.state.pass.setPipeline(object.state.pipeline);
-
         core.queue.writeBuffer(
-            object.state.camera_uniform_buf,
+            object.state.camera_uniform,
             0,
             &[_]Camera.Uniform{.{
                 .projection = camera_mod.get(camera, .projection).?,
@@ -191,7 +307,7 @@ pub const local = struct {
         };
 
         core.queue.writeBuffer(
-            object.state.light_uniform_buf,
+            object.state.light_uniform,
             0,
             &[_]LightUniform{.{
                 .ambient_color = vec4(1, 1, 1, 0.2),
@@ -200,22 +316,27 @@ pub const local = struct {
             }},
         );
 
-        archetypes_iter = engine.entities.query(.{ .all = &.{.{ .object = &.{ .model, .transform } }} });
+        archetypes_iter = engine.entities.query(.{ .all = &.{.{ .object = &.{ .pipeline, .model, .transform } }} });
         while (archetypes_iter.next()) |archetype| for (
+            archetype.slice(.object, .pipeline),
             archetype.slice(.object, .model),
             archetype.slice(.object, .transform),
             0..,
-        ) |model, transform, i| {
-            const buffer_offset = @as(u32, @intCast(i)) * object.state.model_uniform_stride;
+        ) |pipeline_key, model, transform, i| {
+            const pipeline = object.state.pipelines.get(pipeline_key).?;
+
+            engine.state.pass.setPipeline(pipeline.pipeline);
+
+            const buffer_offset = @as(u32, @intCast(i)) * pipeline.model_uniform_stride;
             core.queue.writeBuffer(
-                object.state.model_uniform_buf,
+                pipeline.model_uniform,
                 buffer_offset,
                 &[_]Uniform{.{
                     .model = transform.mat(),
                     .normal = transform.normalMat(),
                 }},
             );
-            engine.state.pass.setBindGroup(0, object.state.bind_group, &.{buffer_offset});
+            engine.state.pass.setBindGroup(0, pipeline.bind_group, &.{buffer_offset});
 
             model.bind(engine.state.pass);
             model.draw(engine.state.pass);

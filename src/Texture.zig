@@ -12,28 +12,27 @@ view: *gpu.TextureView,
 pub fn initFromFile(path: []const u8) !Texture {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    const data = try file.readToEndAllocOptions(core.allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
+    const data = try file.readToEndAlloc(core.allocator, 1024 * 1024 * 1024);
     defer core.allocator.free(data);
-
-    const ext = std.fs.path.extension(path);
-    if (std.mem.eql(u8, ext, ".png")) {
-        return initFromPNG(data);
-    }
-
-    return error.UnknownFormat;
+    return init(data);
 }
 
-pub fn initFromPNG(data: []const u8) !Texture {
+pub fn init(data: []const u8) !Texture {
     var img = try zigimg.Image.fromMemory(core.allocator, data);
     defer img.deinit();
 
-    const img_size = gpu.Extent3D{
+    const size = gpu.Extent3D{
         .width = @intCast(img.width),
         .height = @intCast(img.height),
     };
 
+    const data_layout = gpu.Texture.DataLayout{
+        .bytes_per_row = @intCast(img.width * 4),
+        .rows_per_image = @intCast(img.height),
+    };
+
     const texture = core.device.createTexture(&.{
-        .size = img_size,
+        .size = size,
         .format = .rgba8_unorm,
         .usage = .{
             .texture_binding = true,
@@ -43,27 +42,22 @@ pub fn initFromPNG(data: []const u8) !Texture {
     });
     defer texture.release();
 
-    const data_layout = gpu.Texture.DataLayout{
-        .bytes_per_row = @as(u32, @intCast(img.width * 4)),
-        .rows_per_image = @as(u32, @intCast(img.height)),
-    };
-
     switch (img.pixels) {
-        .rgba32 => |pixels| core.queue.writeTexture(&.{ .texture = texture }, &data_layout, &img_size, pixels),
-        // .rgb24 => |pixels| {
-        //     const rgba32_pixels = try rgb24ToRgba32(allocator, pixels);
-        //     defer data.deinit(allocator);
-        //     core.queue.writeTexture(&.{ .texture = texture }, &data_layout, &img_size, rgba32_pixels);
-        // },
+        .rgba32 => |pixels| core.queue.writeTexture(&.{ .texture = texture }, &data_layout, &size, pixels),
+        .rgb24 => |pixels| {
+            const rgba32_pixels = try rgb24ToRgba32(pixels);
+            defer rgba32_pixels.deinit(core.allocator);
+            core.queue.writeTexture(&.{ .texture = texture }, &data_layout, &size, rgba32_pixels.rgba32);
+        },
         else => @panic("unsupported image color format"),
     }
 
-    const view = texture.createView(&gpu.TextureView.Descriptor{});
     const sampler = core.device.createSampler(&.{ .mag_filter = .linear, .min_filter = .linear });
+    const view = texture.createView(&gpu.TextureView.Descriptor{});
 
     return .{
-        .view = view,
         .sampler = sampler,
+        .view = view,
     };
 }
 

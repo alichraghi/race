@@ -28,7 +28,6 @@ pipeline: *gpu.RenderPipeline,
 camera_uniform_buf: *gpu.Buffer,
 light_uniform_buf: *gpu.Buffer,
 light_uniform_stride: u32,
-bind_group_layout: *gpu.BindGroupLayout,
 bind_group: *gpu.BindGroup,
 show_points: bool,
 
@@ -72,6 +71,8 @@ pub const local = struct {
                 gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, true, 0),
             } }),
         );
+        defer bind_group_layout.release();
+
         const bind_group = core.device.createBindGroup(
             &gpu.BindGroup.Descriptor.init(.{
                 .layout = bind_group_layout,
@@ -122,14 +123,12 @@ pub const local = struct {
             .camera_uniform_buf = camera_uniform_buf,
             .light_uniform_buf = light_uniform_buf,
             .light_uniform_stride = light_uniform_stride,
-            .bind_group_layout = bind_group_layout,
             .bind_group = bind_group,
             .show_points = show_points,
         };
     }
 
     pub fn deinit(light: *Mod) !void {
-        light.state.bind_group_layout.release();
         light.state.bind_group.release();
         light.state.uniform_buf.release();
     }
