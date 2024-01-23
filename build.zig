@@ -24,7 +24,8 @@ pub fn build(b: *std.Build) !void {
         },
     );
 
-    app.compile.addIncludePath(ufbx_dep.path(""));
+    // TODO: WHY THIS DOESN'T WORK???
+    // app.compile.addIncludePath(ufbx_dep.path(""));
     app.compile.addCSourceFile(.{ .file = ufbx_dep.path("ufbx.c"), .flags = &.{} });
     app.compile.linkLibrary(model3d_dep.artifact("mach-model3d"));
     try app.link();

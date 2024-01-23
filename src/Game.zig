@@ -45,19 +45,49 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     try light.send(.init, .{ 10, true });
 
     const quad = try object.newEntity();
-    // BUG: uncomment this and line 60
+    const quad_model = try Model.initFromFile("assets/quad.m3d");
     try object.send(.initEntity, .{ quad, 1, null });
-    try object.set(quad, .transform, .{
-        .translation = vec3(0, 0, 0),
-        .scale = vec3(3, 0.01, 3),
-    });
+    try object.set(quad, .model, quad_model);
+    // Uncomment this function to get 'General protection exception (no address available)'
+    // try object.set(quad, .transform, .{
+    //     .translation = vec3(0, 0, 0),
+    //     .scale = vec3(3, 0.01, 3),
+    // });
+
+    // const cube = try object.newEntity();
+    // const cube_model = try Model.initFromFile("assets/cube.m3d");
+    // try object.send(.initEntity, .{ cube, 1, null });
+    // try object.set(cube, .model, cube_model);
+    // try object.set(cube, .transform, .{
+    //     .translation = vec3(-1, 0.5, -0.5),
+    //     .scale = vec3(0.5, 0.5, 0.5),
+    // });
+
+    // const wrench = try object.newEntity();
+    // const wrench_model = try Model.initFromFile("assets/wrench.fbx");
+    // try object.send(.initEntity, .{ wrench, 1, null });
+    // try object.set(wrench, .model, wrench_model);
+    // try object.set(wrench, .transform, .{
+    //     .translation = vec3(1, 0.5, 0.5),
+    //     .rotation = vec3(0, math.pi, 0),
+    //     .scale = vec3(0.5, 0.5, 0.5),
+    // });
 
     // Light
     const light_green = try light.newEntity();
-    try light.set(light_green, .position, vec3(1, 1.5, 0));
+    try light.set(light_green, .position, vec3(1, 1.5, -0.5));
     try light.set(light_green, .color, vec4(0, 1, 0, 1));
-    // BUG: uncomment this and line 48
     try light.set(light_green, .radius, 0.05);
+
+    // const light_yellow = try light.newEntity();
+    // try light.set(light_yellow, .position, vec3(0, 1.5, 0));
+    // try light.set(light_yellow, .color, vec4(0.5, 0.5, 0, 1));
+    // try light.set(light_yellow, .radius, 0.05);
+
+    // const light_red = try light.newEntity();
+    // try light.set(light_red, .position, vec3(-1, 1.5, -0.5));
+    // try light.set(light_red, .color, vec4(1, 0, 0, 1));
+    // try light.set(light_red, .radius, 0.05);
 
     // Camera
     const main_camera = try camera.newEntity();
