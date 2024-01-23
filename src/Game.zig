@@ -46,18 +46,18 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
 
     const quad = try object.newEntity();
     // BUG: uncomment this and line 60
-    // try object.send(.initEntity, .{ quad, 1, null });
-    // try object.set(quad, .transform, .{
-    //     .translation = vec3(0, 0, 0),
-    //     .scale = vec3(3, 0.01, 3),
-    // });
+    try object.send(.initEntity, .{ quad, 1, null });
+    try object.set(quad, .transform, .{
+        .translation = vec3(0, 0, 0),
+        .scale = vec3(3, 0.01, 3),
+    });
 
     // Light
     const light_green = try light.newEntity();
     try light.set(light_green, .position, vec3(1, 1.5, 0));
     try light.set(light_green, .color, vec4(0, 1, 0, 1));
     // BUG: uncomment this and line 48
-    // try light.set(light_green, .radius, 0.05);
+    try light.set(light_green, .radius, 0.05);
 
     // Camera
     const main_camera = try camera.newEntity();

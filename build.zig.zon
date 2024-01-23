@@ -9,20 +9,20 @@
     },
     .dependencies = .{
         .mach = .{
-            .url = "https://pkg.machengine.org/mach/260802f7771c651246930455dfd7de7a75c9869a.tar.gz",
-            .hash = "1220a2351f6f6f261a9a1f7c17a412acc77bdaa2204daabb0b0dde03f768981a0044",
+            .url = "https://pkg.machengine.org/mach/89622810f83826acb8689145ebbd271d1a077dc9.tar.gz",
+            .hash = "122029d71ca14cb0148edbc0d216159028b63acd5d1f6b0b59c74a7da9fea4a63bf7",
         },
         .mach_freetype = .{
-            .url = "https://pkg.machengine.org/mach-freetype/a6d971285dfe731e49f82e81c81da2b7f5c6a442.tar.gz",
-            .hash = "1220e0de43cacb583b8f9efddcbe359398cfca17a39e265b56c8f2a10314eb8f7a5f",
+            .url = "https://pkg.machengine.org/mach-freetype/7546a906b6c4b308b98d36264dfbe32ca24ae579.tar.gz",
+            .hash = "12205faaaaf547019f0763ac620af77fff2728b8eb4222b62120ee224ce53392cf31",
         },
         .model3d = .{
-            .url = "https://pkg.machengine.org/mach-model3d/8d94416c815e9f151806e87b9daa54111a7d6d39.tar.gz",
-            .hash = "1220d4b32bf9d74efb498a939b81b5f1c77bea213a346b88d06ae079836d2dc84aff",
+            .url = "https://pkg.machengine.org/mach-model3d/04a493eb6c1a46b7f06f862b5e4d6bfcebad4cb5.tar.gz",
+            .hash = "12204725f8a000dc5e27e5d7e68dc2d26a9db904639f18e8866d5d540edae629d149",
         },
         .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/c16565d659526f1943444950b0f5857037ce0c9c.tar.gz",
-            .hash = "122068ede06d793e00d5c15b2f0c8209d284031f9c91eb89805f1b607eadf6c6b3a2",
+            .url = "https://github.com/zigimg/zigimg/archive/f6998808f283f8d3c2ef34e8b4af423bc1786f32.tar.gz",
+            .hash = "12202ee5d22ade0c300e9e7eae4c1951bda3d5f236fe1a139eb3613b43e2f12a88db",
         },
         .ufbx = .{
             .url = "https://github.com/ufbx/ufbx/archive/fa5a5811cf5ac37d407188c819c7b19b0028dd65.tar.gz",
