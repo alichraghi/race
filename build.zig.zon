@@ -9,12 +9,12 @@
     },
     .dependencies = .{
         .mach = .{
-            .url = "https://pkg.machengine.org/mach/89622810f83826acb8689145ebbd271d1a077dc9.tar.gz",
-            .hash = "122029d71ca14cb0148edbc0d216159028b63acd5d1f6b0b59c74a7da9fea4a63bf7",
+            .url = "https://pkg.machengine.org/mach/f42135795afaf52307f3a2a8757462fd8efa71ac.tar.gz",
+            .hash = "12208fd50c06eaa0a88a489303da7ed99fb4fea839b6b75a10990d014aadc638c2d0",
         },
         .mach_freetype = .{
-            .url = "https://pkg.machengine.org/mach-freetype/7546a906b6c4b308b98d36264dfbe32ca24ae579.tar.gz",
-            .hash = "12205faaaaf547019f0763ac620af77fff2728b8eb4222b62120ee224ce53392cf31",
+            .url = "https://pkg.machengine.org/mach-freetype/dc4a5d8ce14f8678f35bdaf197303091e22b1f27.tar.gz",
+            .hash = "122070070dd2c402d94c279d64d4a4d154691ad49f46fa2c24ed7c6e4e4f5c531477",
         },
         .model3d = .{
             .url = "https://pkg.machengine.org/mach-model3d/04a493eb6c1a46b7f06f862b5e4d6bfcebad4cb5.tar.gz",
