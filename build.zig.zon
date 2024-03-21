@@ -9,8 +9,8 @@
     },
     .dependencies = .{
         .mach = .{
-            .url = "https://pkg.machengine.org/mach/f42135795afaf52307f3a2a8757462fd8efa71ac.tar.gz",
-            .hash = "12208fd50c06eaa0a88a489303da7ed99fb4fea839b6b75a10990d014aadc638c2d0",
+            .url = "https://github.com/hexops/mach/archive/e23352223e764cbcced06a09ed024efdb00cfd31.tar.gz",
+            .hash = "12208ca3bff495ce06fcb0922130376797c815f0389784260ef6f4a21ca3871329c7",
         },
         .mach_freetype = .{
             .url = "https://pkg.machengine.org/mach-freetype/dc4a5d8ce14f8678f35bdaf197303091e22b1f27.tar.gz",
@@ -21,8 +21,8 @@
             .hash = "12204725f8a000dc5e27e5d7e68dc2d26a9db904639f18e8866d5d540edae629d149",
         },
         .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/f6998808f283f8d3c2ef34e8b4af423bc1786f32.tar.gz",
-            .hash = "12202ee5d22ade0c300e9e7eae4c1951bda3d5f236fe1a139eb3613b43e2f12a88db",
+            .url = "https://github.com/slimsag/zigimg/archive/19a49a7e44fb4b1c22341dfbd6566019de742055.tar.gz",
+            .hash = "1220ebfa8587cfd644995fc08e218dbb3ebd7344fb8e129ff02bc5a6d52a2325370d",
         },
         .ufbx = .{
             .url = "https://github.com/ufbx/ufbx/archive/fa5a5811cf5ac37d407188c819c7b19b0028dd65.tar.gz",

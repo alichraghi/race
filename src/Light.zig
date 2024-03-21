@@ -130,7 +130,8 @@ pub const local = struct {
 
     pub fn deinit(light: *Mod) !void {
         light.state.bind_group.release();
-        light.state.uniform_buf.release();
+        light.state.camera_uniform_buf.release();
+        light.state.light_uniform_buf.release();
     }
 
     pub fn render(engine: *Engine.Mod, light: *Mod, camera_mod: *Camera.Mod, camera: mach.ecs.EntityID) !void {

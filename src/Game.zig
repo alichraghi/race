@@ -40,19 +40,19 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     const depth_texture, const depth_view = createDepthTexture();
 
     // Init modules
-    try camera.send(.init, .{});
-    try object.send(.init, .{10});
-    try light.send(.init, .{ 10, true });
+    camera.send(.init, .{});
+    object.send(.init, .{});
+    light.send(.init, .{ 10, true });
 
     const quad = try object.newEntity();
     const quad_model = try Model.initFromFile("assets/quad.m3d");
-    try object.send(.initEntity, .{ quad, 1, null });
+    object.send(.initEntity, .{ quad, 1, null });
     try object.set(quad, .model, quad_model);
     // Uncomment this function to get 'General protection exception (no address available)'
-    // try object.set(quad, .transform, .{
-    //     .translation = vec3(0, 0, 0),
-    //     .scale = vec3(3, 0.01, 3),
-    // });
+    try object.set(quad, .transform, .{
+        .translation = vec3(0, 0, 0),
+        .scale = vec3(3, 0.01, 3),
+    });
 
     // const cube = try object.newEntity();
     // const cube_model = try Model.initFromFile("assets/cube.m3d");
@@ -114,18 +114,18 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
 }
 
 pub fn deinit(game: *Mod, object: *Object.Mod) !void {
-    try object.send(.deinit, .{});
+    object.send(.deinit, .{});
     game.state.depth_texture.release();
     game.state.depth_view.release();
 }
 
 pub fn tick(game: *Mod, engine: *Engine.Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
-    try game.send(.processEvents, .{});
+    game.send(.processEvents, .{});
 
     { // Camera
         // Projection
         const aspect = @as(f32, @floatFromInt(core.descriptor.width)) / @as(f32, @floatFromInt(core.descriptor.height));
-        try camera.send(.perspective, .{
+        camera.send(.perspective, .{
             game.state.main_camera,
             math.degreesToRadians(f32, 45),
             aspect,
@@ -142,15 +142,15 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, camera: *Camera.Mod, object: *Objec
         game.state.camera_pos = game.state.camera_pos.add(&camera_movement);
 
         // View
-        try camera.send(.lookAt, .{
-            game.state.main_camera,
-            game.state.camera_pos,
-            game.state.camera_pos.add(&game.state.camera_front),
-            math.up,
-        });
+        // camera.send(.lookAt, .{
+        //     game.state.main_camera,
+        //     game.state.camera_pos,
+        //     game.state.camera_pos.add(&game.state.camera_front),
+        //     math.up,
+        // });
     }
 
-    try engine.send(.beginPass, .{ .{ .r = 0.09375, .g = 0.09375, .b = 0.09375, .a = 0 }, &.{
+    engine.send(.beginPass, .{ .{ .r = 0.09375, .g = 0.09375, .b = 0.09375, .a = 0 }, &.{
         .view = game.state.depth_view,
         .depth_clear_value = 1.0,
         .depth_load_op = .clear,
@@ -160,11 +160,11 @@ pub fn tick(game: *Mod, engine: *Engine.Mod, camera: *Camera.Mod, object: *Objec
     // try object.set(game.state.wrench, .transform, .{
     //     .rotation = vec3(0, object.get(game.state.wrench, .transform).?.rotation.y() + 0.01, 0),
     // });
-    try object.send(.render, .{game.state.main_camera});
-    try light.send(.render, .{game.state.main_camera});
+    object.send(.render, .{game.state.main_camera});
+    light.send(.render, .{game.state.main_camera});
 
-    try engine.send(.endPass, .{});
-    try engine.send(.present, .{});
+    engine.send(.endPass, .{});
+    engine.send(.present, .{});
 }
 
 pub const local = struct {
@@ -201,7 +201,7 @@ pub const local = struct {
                 .framebuffer_resize => {
                     game.state.depth_texture, game.state.depth_view = createDepthTexture();
                 },
-                .close => try engine.send(.exit, .{}),
+                .close => engine.send(.exit, .{}),
                 else => {},
             }
         }
