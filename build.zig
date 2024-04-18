@@ -10,12 +10,17 @@ pub fn build(b: *std.Build) !void {
     const zigimg_dep = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
     const ufbx_dep = b.dependency("ufbx", .{ .target = target, .optimize = optimize });
 
+    const use_sysgpu = b.option(bool, "use_sysgpu", "Use sysgpu") orelse false;
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "use_sysgpu", use_sysgpu);
+
     const exe = b.addExecutable(.{
         .name = "car_race",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
+    exe.root_module.addImport("build_options", build_options.createModule());
     exe.root_module.addImport("mach", mach_dep.module("mach"));
     exe.root_module.addImport("model3d", model3d_dep.module("mach-model3d"));
     exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));

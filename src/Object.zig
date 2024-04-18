@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const mach = @import("mach");
 const Game = @import("Game.zig");
 const Model = @import("Model.zig");
@@ -68,10 +69,17 @@ pub fn getPipeline(object: *@This(), config: PipelineConfig) !Pipeline {
     const gop = try object.pipelines.getOrPut(mach.core.allocator, config);
     if (gop.found_existing) return gop.value_ptr.*;
 
-    var limits = gpu.SupportedLimits{};
-    _ = mach.core.device.getLimits(&limits);
+    var limits = gpu.SupportedLimits{
+        // TODO(sysgpu)
+        .limits = .{
+            .min_uniform_buffer_offset_alignment = 256,
+        },
+    };
+    if (!build_options.use_sysgpu) {
+        _ = mach.core.device.getLimits(&limits);
+    }
 
-    const model_uniform_stride = math.ceilToNextMultiple(@sizeOf(shaders.ObjectUniform), limits.limits.min_uniform_buffer_offset_alignment);
+    const model_uniform_stride = math.ceilToNextMultiple(@sizeOf(shaders.ObjectUniform), 256);
     const model_uniform = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
         .size = config.instance_capacity * model_uniform_stride,
@@ -95,9 +103,20 @@ pub fn getPipeline(object: *@This(), config: PipelineConfig) !Pipeline {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, object.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
-                gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
-                gpu.BindGroup.Entry.buffer(2, model_uniform, 0, model_uniform_stride),
+                // TODO(sysgpu)
+                if (build_options.use_sysgpu)
+                    gpu.BindGroup.Entry.buffer(0, object.camera_uniform, 0, @sizeOf(shaders.CameraUniform), 0)
+                else
+                    gpu.BindGroup.Entry.buffer(0, object.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
+                if (build_options.use_sysgpu)
+                    gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform), 0)
+                else
+                    gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
+                if (build_options.use_sysgpu)
+                    gpu.BindGroup.Entry.buffer(2, model_uniform, 0, model_uniform_stride, 0)
+                else
+                    gpu.BindGroup.Entry.buffer(2, model_uniform, 0, model_uniform_stride),
+
                 gpu.BindGroup.Entry.sampler(3, marble_texture.sampler),
                 gpu.BindGroup.Entry.textureView(4, marble_texture.view),
             },

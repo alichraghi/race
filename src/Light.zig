@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const mach = @import("mach");
 const Camera = @import("Camera.zig");
 const Game = @import("Game.zig");
@@ -32,8 +33,15 @@ pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
 
-    var limits = gpu.SupportedLimits{};
-    _ = mach.core.device.getLimits(&limits);
+    var limits = gpu.SupportedLimits{
+        // TODO(sysgpu)
+        .limits = .{
+            .min_uniform_buffer_offset_alignment = 256,
+        },
+    };
+    if (!build_options.use_sysgpu) {
+        _ = mach.core.device.getLimits(&limits);
+    }
 
     const camera_uniform_size = math.ceilToNextMultiple(
         @sizeOf(shaders.CameraUniform),
@@ -67,8 +75,14 @@ pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_size),
-                gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
+                if (build_options.use_sysgpu)
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_size, 0)
+                else
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_size),
+                if (build_options.use_sysgpu)
+                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride, 0)
+                else
+                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
             },
         }),
     );

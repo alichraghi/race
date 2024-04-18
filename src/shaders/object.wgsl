@@ -59,7 +59,8 @@ fn frag_main(in: Output) -> @location(0) vec4<f32> {
     var specular_light = vec3(0.0);
     let surface_normal = normalize(in.normal_world);
 
-    let camera_position_wolrd = transpose(camera.view)[3].xyz;
+    // This is just a transpose. similar to `transpose(camera.view)[3].xyz`
+    let camera_position_wolrd = vec3(camera.view[0][3], camera.view[1][3], camera.view[2][3]);
     let view_direction = normalize(camera_position_wolrd - in.position_world);
 
     for (var i: u32 = 0; i < light.len; i++) {

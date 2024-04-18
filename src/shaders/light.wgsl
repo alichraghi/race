@@ -1,12 +1,3 @@
-const offsets = array(
-    vec2(-1.0, -1.0),
-    vec2(-1.0, 1.0),
-    vec2(1.0, -1.0),
-    vec2(1.0, -1.0),
-    vec2(-1.0, 1.0),
-    vec2(1.0, 1.0)
-);
-
 struct Camera {
     projection: mat4x4<f32>,
     view: mat4x4<f32>,
@@ -28,6 +19,15 @@ struct Output {
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> Output {
+    const offsets = array(
+        vec2(-1.0, -1.0),
+        vec2(-1.0, 1.0),
+        vec2(1.0, -1.0),
+        vec2(1.0, -1.0),
+        vec2(-1.0, 1.0),
+        vec2(1.0, 1.0)
+    );
+
     let offset = offsets[vertex_index];
     let camera_right_world = vec3(camera.view[0][0], camera.view[1][0], camera.view[2][0]);
     let camera_up_world = vec3(camera.view[0][1], camera.view[1][1], camera.view[2][1]);
