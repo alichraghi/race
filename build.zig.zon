@@ -9,8 +9,12 @@
     },
     .dependencies = .{
         .mach = .{
-            .url = "https://github.com/hexops/mach/archive/e23352223e764cbcced06a09ed024efdb00cfd31.tar.gz",
-            .hash = "12208ca3bff495ce06fcb0922130376797c815f0389784260ef6f4a21ca3871329c7",
+            .url = "https://github.com/hexops/mach/archive/87a7cd8ed889ae77c08b70b2a680e3cff043717a.tar.gz",
+            .hash = "122056329ab7e8a5ad802a8711833a3a5a7442914d0cada8b7e63fc3e25ac5358221",
+        },
+        .mach_gpu_dawn = .{
+            .url = "https://pkg.machengine.org/mach-gpu-dawn/cce4d19945ca6102162b0cbbc546648edb38dc41.tar.gz",
+            .hash = "1220a6e3f4772fed665bb5b1792cf5cff8ac51af42a57ad8d276e394ae19f310a92e",
         },
         .mach_freetype = .{
             .url = "https://pkg.machengine.org/mach-freetype/dc4a5d8ce14f8678f35bdaf197303091e22b1f27.tar.gz",

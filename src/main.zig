@@ -5,11 +5,17 @@ const Object = @import("Object.zig");
 const Light = @import("Light.zig");
 
 pub const modules = .{
-    mach.Engine,
+    mach.Core,
     Camera,
     Object,
     Light,
     Game,
 };
 
-pub const App = mach.App;
+pub fn main() !void {
+    // Initialize mach.Core
+    try mach.core.initModule();
+
+    // Main loop
+    while (try mach.core.tick()) {}
+}
