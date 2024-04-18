@@ -63,9 +63,8 @@ pub fn init(data: []const u8) !Texture {
 
 fn rgb24ToRgba32(in: []zigimg.color.Rgb24) !zigimg.color.PixelStorage {
     const out = try zigimg.color.PixelStorage.init(core.allocator, .rgba32, in.len);
-    var i: usize = 0;
-    while (i < in.len) : (i += 1) {
-        out.rgba32[i] = zigimg.color.Rgba32{ .r = in[i].r, .g = in[i].g, .b = in[i].b, .a = 255 };
+    for (out.rgba32, in) |*out_pixel, in_pixel| {
+        out_pixel.* = .{ .r = in_pixel.r, .g = in_pixel.g, .b = in_pixel.b, .a = 255 };
     }
     return out;
 }

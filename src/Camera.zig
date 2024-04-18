@@ -3,22 +3,11 @@ const math = @import("math.zig");
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 const Mat4x4 = math.Mat4x4;
-const vec3 = math.vec3;
 const vec4 = math.vec4;
 const mat4x4 = math.mat4x4;
 
-pub const name = .camera;
-pub const Mod = mach.Mod(@This());
-
-pub const components = .{
-    .projection = .{ .type = Mat4x4 },
-    .view = .{ .type = Mat4x4 },
-};
-
-pub const Uniform = struct {
-    projection: Mat4x4,
-    view: Mat4x4,
-};
+projection: Mat4x4 = Mat4x4.ident,
+view: Mat4x4 = Mat4x4.ident,
 
 pub fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) Mat4x4 {
     const h = 1 / @tan(0.5 * fovy);

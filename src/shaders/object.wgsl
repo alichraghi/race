@@ -20,13 +20,6 @@ struct Model {
     normal: mat3x3<f32>,
 };
 
-// @group(0) @binding(0) var<uniform> camera: Camera;
-// @group(0) @binding(1) var<uniform> light: LightList;
-// @group(0) @binding(2) var<uniform> model: Model;
-// @group(0) @binding(3) var<uniform> bones: [64]mat4x4;
-// @group(0) @binding(4) var diffuse_sampler: sampler;
-// @group(0) @binding(5) var texture: texture_2d<f32>;
-
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> light: LightList;
 @group(0) @binding(2) var<uniform> model: Model;

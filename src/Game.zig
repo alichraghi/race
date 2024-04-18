@@ -5,25 +5,20 @@ const Camera = @import("Camera.zig");
 const Object = @import("Object.zig");
 const Light = @import("Light.zig");
 const Model = @import("Model.zig");
-const Texture = @import("Texture.zig");
 const Core = mach.Core;
 const gpu = mach.core.gpu;
-const Mat4x4 = math.Mat4x4;
 const Vec3 = math.Vec3;
 const vec3 = math.vec3;
 const vec4 = math.vec4;
 
-timer: mach.core.Timer,
-
 pass: *gpu.RenderPassEncoder,
 encoder: *gpu.CommandEncoder,
-
 depth_texture: *gpu.Texture,
 depth_view: *gpu.TextureView,
 
+main_camera: Camera,
 wrench: mach.EntityID,
 quad: mach.EntityID,
-main_camera: mach.EntityID,
 
 prev_mouse_pos: Vec3,
 
@@ -42,21 +37,22 @@ pub const global_events = .{
 
 pub const local_events = .{
     .processEvents = .{ .handler = processEvents },
-    .endFrame = .{ .handler = endFrame },
+    .tickCamera = .{ .handler = tickCamera },
+    .beginRender = .{ .handler = beginRender },
+    .endRender = .{ .handler = endRender },
 };
 
-pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
+pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     mach.core.setCursorMode(.disabled);
 
     // Depth Texture
     const depth_texture, const depth_view = createDepthTexture();
 
     // Init modules
-    camera.init(.{});
     object.init(.{
         .shader = undefined,
         .camera_uniform = undefined,
-        .light_uniform = undefined,
+        .light_list_uniform = undefined,
     });
     light.init(.{
         .pipeline = undefined,
@@ -69,9 +65,10 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     try object.state().init();
     try light.state().init(10, true);
 
+    // Objects
     const quad = try object.newEntity();
     const quad_model = try Model.initFromFile("assets/quad.m3d");
-    object.send(.initEntity, .{ quad, 3, null });
+    try object.set(quad, .pipeline_config, .{ .instance_capacity = 3, .texture = null });
     try object.set(quad, .model, quad_model);
     try object.set(quad, .transform, .{
         .translation = vec3(0, 0, 0),
@@ -80,7 +77,7 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
 
     const cube = try object.newEntity();
     const cube_model = try Model.initFromFile("assets/cube.m3d");
-    object.send(.initEntity, .{ cube, 3, null });
+    try object.set(cube, .pipeline_config, .{ .instance_capacity = 3, .texture = null });
     try object.set(cube, .model, cube_model);
     try object.set(cube, .transform, .{
         .translation = vec3(-1, 0.5, -0.5),
@@ -88,8 +85,8 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     });
 
     const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile("assets/wrench.fbx");
-    object.send(.initEntity, .{ wrench, 3, null });
+    const wrench_model = try Model.initFromFile("assets/wrench.obj");
+    try object.set(wrench, .pipeline_config, .{ .instance_capacity = 3, .texture = null });
     try object.set(wrench, .model, wrench_model);
     try object.set(wrench, .transform, .{
         .translation = vec3(1, 0.5, 0.5),
@@ -103,10 +100,10 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     try light.set(light_green, .color, vec4(0, 1, 0, 1));
     try light.set(light_green, .radius, 0.05);
 
-    const light_yellow = try light.newEntity();
-    try light.set(light_yellow, .position, vec3(0, 1.5, 0));
-    try light.set(light_yellow, .color, vec4(0.5, 0.5, 0, 1));
-    try light.set(light_yellow, .radius, 0.05);
+    const light_blue = try light.newEntity();
+    try light.set(light_blue, .position, vec3(0, 1.5, 0));
+    try light.set(light_blue, .color, vec4(0.5, 0, 1, 1));
+    try light.set(light_blue, .radius, 0.05);
 
     const light_red = try light.newEntity();
     try light.set(light_red, .position, vec3(-1, 1.5, -0.5));
@@ -114,23 +111,19 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
     try light.set(light_red, .radius, 0.05);
 
     // Camera
-    const main_camera = try camera.newEntity();
-    try camera.set(main_camera, .projection, Mat4x4.ident);
-    try camera.set(main_camera, .view, Mat4x4.ident);
-
+    const main_camera = Camera{};
     const mouse_pos = mach.core.mousePosition();
-    const camera_rot = vec3(0, math.degreesToRadians(f32, 90), 0);
+    const camera_rot = vec3(0, math.pi / 2.0, 0); // 90deg
     const camera_front = math.worldSpaceDirection(camera_rot);
 
     game.init(.{
-        .timer = try mach.core.Timer.start(),
         .pass = undefined,
         .encoder = mach.core.device.createCommandEncoder(&.{}),
         .depth_texture = depth_texture,
         .depth_view = depth_view,
+        .main_camera = main_camera,
         .wrench = wrench,
         .quad = quad,
-        .main_camera = main_camera,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
         .camera_pos = vec3(0, 0, -6),
         .camera_rot = camera_rot,
@@ -140,39 +133,101 @@ pub fn init(game: *Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.
 }
 
 pub fn deinit(game: *Mod, object: *Object.Mod) !void {
+    const state = game.state();
+
     object.send(.deinit, .{});
-    game.state().depth_texture.release();
-    game.state().depth_view.release();
+    state.depth_texture.release();
+    state.depth_view.release();
 }
 
-pub fn tick(game: *Mod, core: *Core.Mod, camera: *Camera.Mod, object: *Object.Mod, light: *Light.Mod) !void {
-    try processEvents(game, core);
+pub fn tick(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
+    const state = game.state();
 
-    { // Camera
-        // Projection
-        const aspect = @as(f32, @floatFromInt(mach.core.descriptor.width)) / @as(f32, @floatFromInt(mach.core.descriptor.height));
-        try camera.set(game.state().main_camera, .projection, Camera.perspective(
-            math.degreesToRadians(f32, 45),
-            aspect,
-            0.1,
-            100,
-        ));
+    game.send(.processEvents, .{});
+    game.send(.tickCamera, .{});
+    game.send(.beginRender, .{});
+    object.send(.render, .{&state.main_camera});
+    light.send(.render, .{&state.main_camera});
+    game.send(.endRender, .{});
+}
 
-        // Position
-        const move_speed = 5 * mach.core.delta_time;
-        const camera_movement =
-            game.state().camera_front.mulScalar(game.state().camera_dir.z()) // Forward-Backward
-            .add(&math.normalize(game.state().camera_front.cross(&math.up)).mulScalar(game.state().camera_dir.x())) // Right-Left
-            .mulScalar(move_speed);
-        game.state().camera_pos = game.state().camera_pos.add(&camera_movement);
+pub fn tickCamera(game: *Mod) !void {
+    const state = game.state();
 
-        // View
-        try camera.set(game.state().main_camera, .view, Camera.lookAt(
-            game.state().camera_pos,
-            game.state().camera_pos.add(&game.state().camera_front),
-            math.up,
-        ));
+    // Position
+    const move_speed = 5 * mach.core.delta_time;
+    const camera_movement = state.camera_front
+        .mulScalar(state.camera_dir.z()) // Forward-Backward
+        .add(&math.normalize(state.camera_front.cross(&math.up)).mulScalar(state.camera_dir.x())) // Right-Left
+        .mulScalar(move_speed);
+    state.camera_pos = state.camera_pos.add(&camera_movement);
+
+    // Projection
+    const w: f32 = @floatFromInt(mach.core.descriptor.width);
+    const h: f32 = @floatFromInt(mach.core.descriptor.height);
+    state.main_camera.projection = Camera.perspective(
+        math.pi / 4.0, // 45deg
+        w / h,
+        0.1,
+        100,
+    );
+
+    // View
+    state.main_camera.view = Camera.lookAt(
+        state.camera_pos,
+        state.camera_pos.add(&state.camera_front),
+        math.up,
+    );
+}
+
+pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
+    const state = game.state();
+
+    var iter = mach.core.pollEvents();
+    while (iter.next()) |event| {
+        switch (event) {
+            .key_press => |ev| {
+                switch (ev.key) {
+                    .w => state.camera_dir.v[2] += 1,
+                    .d => state.camera_dir.v[0] += 1,
+                    .s => state.camera_dir.v[2] -= 1,
+                    .a => state.camera_dir.v[0] -= 1,
+                    .escape => mach.core.setCursorMode(.normal),
+                    else => {},
+                }
+            },
+            .key_release => |ev| {
+                switch (ev.key) {
+                    .w => state.camera_dir.v[2] -= 1,
+                    .d => state.camera_dir.v[0] -= 1,
+                    .s => state.camera_dir.v[2] += 1,
+                    .a => state.camera_dir.v[0] += 1,
+                    else => {},
+                }
+            },
+            .mouse_release => |m| switch (m.button) {
+                .left => mach.core.setCursorMode(.disabled),
+                else => {},
+            },
+            .mouse_motion => |m| {
+                const rot_speed = mach.core.delta_time * 0.2;
+                const mouse_pos = vec3(@floatCast(-m.pos.y), @floatCast(m.pos.x), 0);
+                const rotation = mouse_pos.sub(&state.prev_mouse_pos);
+                state.prev_mouse_pos = mouse_pos;
+                state.camera_rot = state.camera_rot.add(&rotation.mulScalar(rot_speed));
+                state.camera_front = math.worldSpaceDirection(state.camera_rot);
+            },
+            .framebuffer_resize => {
+                state.depth_texture, state.depth_view = createDepthTexture();
+            },
+            .close => core.send(.exit, .{}),
+            else => {},
+        }
     }
+}
+
+pub fn beginRender(game: *Mod, object: *Object.Mod) !void {
+    const state = game.state();
 
     const back_buffer_view = mach.core.swap_chain.getCurrentTextureView().?;
     defer back_buffer_view.release();
@@ -186,79 +241,37 @@ pub fn tick(game: *Mod, core: *Core.Mod, camera: *Camera.Mod, object: *Object.Mo
     const pass_info = gpu.RenderPassDescriptor.init(.{
         .color_attachments = &.{color_attachment},
         .depth_stencil_attachment = &.{
-            .view = game.state().depth_view,
+            .view = state.depth_view,
             .depth_clear_value = 1.0,
             .depth_load_op = .clear,
             .depth_store_op = .store,
         },
     });
 
-    game.state().pass = game.state().encoder.beginRenderPass(&pass_info);
+    state.pass = state.encoder.beginRenderPass(&pass_info);
 
     // rotate wrench
-    const transform = object.get(game.state().wrench, .transform).?;
-    try object.set(game.state().wrench, .transform, .{
-        .rotation = vec3(0, object.get(game.state().wrench, .transform).?.rotation.y() + 0.01, 0),
+    const transform = object.get(state.wrench, .transform).?;
+    try object.set(state.wrench, .transform, .{
+        .rotation = vec3(0, object.get(state.wrench, .transform).?.rotation.y() + 0.01, 0),
         .scale = transform.scale,
         .translation = transform.translation,
     });
-
-    object.send(.render, .{game.state().main_camera});
-    light.send(.render, .{game.state().main_camera});
-
-    game.send(.endFrame, .{});
 }
 
-pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
-    var iter = mach.core.pollEvents();
-    while (iter.next()) |event| {
-        switch (event) {
-            .key_press => |ev| {
-                switch (ev.key) {
-                    .w => game.state().camera_dir.v[2] += 1,
-                    .d => game.state().camera_dir.v[0] += 1,
-                    .s => game.state().camera_dir.v[2] -= 1,
-                    .a => game.state().camera_dir.v[0] -= 1,
-                    else => {},
-                }
-            },
-            .key_release => |ev| {
-                switch (ev.key) {
-                    .w => game.state().camera_dir.v[2] -= 1,
-                    .d => game.state().camera_dir.v[0] -= 1,
-                    .s => game.state().camera_dir.v[2] += 1,
-                    .a => game.state().camera_dir.v[0] += 1,
-                    else => {},
-                }
-            },
-            .mouse_motion => |m| {
-                const rot_speed = mach.core.delta_time * 0.2;
-                const mouse_pos = vec3(@floatCast(-m.pos.y), @floatCast(m.pos.x), 0);
-                const rotation = mouse_pos.sub(&game.state().prev_mouse_pos);
-                game.state().prev_mouse_pos = mouse_pos;
-                game.state().camera_rot = game.state().camera_rot.add(&rotation.mulScalar(rot_speed));
-                game.state().camera_front = math.worldSpaceDirection(game.state().camera_rot);
-            },
-            .framebuffer_resize => {
-                game.state().depth_texture, game.state().depth_view = createDepthTexture();
-            },
-            .close => core.send(.exit, .{}),
-            else => {},
-        }
-    }
-}
+pub fn endRender(game: *Mod) !void {
+    const state = game.state();
 
-pub fn endFrame(game: *Mod, core: *Core.Mod) !void {
-    game.state().pass.end();
-    game.state().pass.release();
+    state.pass.end();
+    state.pass.release();
 
-    var command = game.state().encoder.finish(null);
+    var command = state.encoder.finish(null);
     defer command.release();
-    game.state().encoder.release();
-    core.state().queue.submit(&[_]*gpu.CommandBuffer{command});
+    state.encoder.release();
+    mach.core.queue.submit(&[_]*gpu.CommandBuffer{command});
 
     // Prepare for next pass
-    game.state().encoder = core.state().device.createCommandEncoder(&.{});
+    state.encoder = mach.core.device.createCommandEncoder(&.{});
     mach.core.swap_chain.present();
 }
 

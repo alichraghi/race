@@ -1,18 +1,12 @@
 const std = @import("std");
 const mach = @import("mach");
-const Model = @import("Model.zig");
 const Camera = @import("Camera.zig");
 const Game = @import("Game.zig");
 const math = @import("math.zig");
+const shaders = @import("shaders.zig");
 const gpu = mach.core.gpu;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
-const Mat3x3 = math.Mat3x3;
-const Mat4x4 = math.Mat4x4;
-const vec3 = math.vec3;
-const vec4 = math.vec4;
-const mat3x3 = math.mat3x3;
-const mat4x4 = math.mat4x4;
 
 pub const name = .light;
 pub const Mod = mach.Mod(@This());
@@ -34,21 +28,15 @@ light_uniform_stride: u32,
 bind_group: *gpu.BindGroup,
 show_points: bool,
 
-pub const Uniform = struct {
-    position: Vec3,
-    color: Vec4,
-    radius: f32,
-};
-
 pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
-    const shader_module = mach.core.device.createShaderModuleWGSL("light.wgsl", @embedFile("light.wgsl"));
+    const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
 
     var limits = gpu.SupportedLimits{};
     _ = mach.core.device.getLimits(&limits);
 
     const camera_uniform_size = math.ceilToNextMultiple(
-        @sizeOf(Camera.Uniform),
+        @sizeOf(shaders.CameraUniform),
         limits.limits.min_uniform_buffer_offset_alignment,
     );
     const camera_uniform_buf = mach.core.device.createBuffer(&.{
@@ -58,7 +46,7 @@ pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
     });
 
     const light_uniform_stride = math.ceilToNextMultiple(
-        @sizeOf(Uniform),
+        @sizeOf(shaders.LightUniform),
         limits.limits.min_uniform_buffer_offset_alignment,
     );
     const light_uniform_buf = mach.core.device.createBuffer(&.{
@@ -131,26 +119,32 @@ pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
 }
 
 pub fn deinit(light: *Mod) !void {
-    light.state().bind_group.release();
-    light.state().camera_uniform_buf.release();
-    light.state().light_uniform_buf.release();
+    const state = light.state();
+
+    state.bind_group.release();
+    state.camera_uniform_buf.release();
+    state.light_uniform_buf.release();
 }
 
-pub fn render(game: *Game.Mod, core: *mach.Core.Mod, light: *Mod, camera_mod: *Camera.Mod, camera: mach.EntityID) !void {
-    if (!light.state().show_points) return;
+// TODO(WORKAROUND): Camera shouldn't be a pointer
+pub fn render(light: *Mod, game: *Game.Mod, camera: *const Camera) !void {
+    const state = light.state();
+    const game_state = game.state();
 
-    game.state().pass.setPipeline(light.state().pipeline);
+    if (!state.show_points) return;
+
+    game_state.pass.setPipeline(state.pipeline);
 
     mach.core.queue.writeBuffer(
-        light.state().camera_uniform_buf,
+        state.camera_uniform_buf,
         0,
-        &[_]Camera.Uniform{.{
-            .projection = camera_mod.get(camera, .projection).?,
-            .view = camera_mod.get(camera, .view).?,
+        &[_]shaders.CameraUniform{.{
+            .projection = camera.projection,
+            .view = camera.view,
         }},
     );
 
-    var archetypes_iter = core.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
+    var archetypes_iter = light.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
     while (archetypes_iter.next()) |archetype| {
         for (
             archetype.slice(.light, .position),
@@ -158,18 +152,18 @@ pub fn render(game: *Game.Mod, core: *mach.Core.Mod, light: *Mod, camera_mod: *C
             archetype.slice(.light, .radius),
             0..,
         ) |position, color, radius, i| {
-            const buffer_offset = @as(u32, @intCast(i)) * light.state().light_uniform_stride;
+            const buffer_offset = @as(u32, @intCast(i)) * state.light_uniform_stride;
             mach.core.queue.writeBuffer(
-                light.state().light_uniform_buf,
+                state.light_uniform_buf,
                 buffer_offset,
-                &[_]Uniform{.{
+                &[_]shaders.LightUniform{.{
                     .position = position, // TODO: x is reverted!?
                     .color = color,
                     .radius = radius,
                 }},
             );
-            game.state().pass.setBindGroup(0, light.state().bind_group, &.{buffer_offset});
-            game.state().pass.draw(6, 1, 0, 0);
+            game_state.pass.setBindGroup(0, state.bind_group, &.{buffer_offset});
+            game_state.pass.draw(6, 1, 0, 0);
         }
     }
 }
