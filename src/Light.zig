@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("build_options");
 const mach = @import("mach");
 const Camera = @import("Camera.zig");
@@ -27,9 +28,9 @@ camera_uniform_buf: *gpu.Buffer,
 light_uniform_buf: *gpu.Buffer,
 light_uniform_stride: u32,
 bind_group: *gpu.BindGroup,
-show_points: bool,
+show_points: bool = builtin.mode == .Debug,
 
-pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
+pub fn init(light: *@This(), lights_capacity: u32) !void {
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
 
@@ -43,13 +44,9 @@ pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
         _ = mach.core.device.getLimits(&limits);
     }
 
-    const camera_uniform_size = math.ceilToNextMultiple(
-        @sizeOf(shaders.CameraUniform),
-        limits.limits.min_uniform_buffer_offset_alignment,
-    );
     const camera_uniform_buf = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = camera_uniform_size,
+        .size = @sizeOf(shaders.CameraUniform),
         .mapped_at_creation = .false,
     });
 
@@ -75,10 +72,11 @@ pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
+                // TODO(sysgpu)
                 if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_size, 0)
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform), 0)
                 else
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, camera_uniform_size),
+                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform)),
                 if (build_options.use_sysgpu)
                     gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride, 0)
                 else
@@ -128,7 +126,6 @@ pub fn init(light: *@This(), lights_capacity: u32, show_points: bool) !void {
         .light_uniform_buf = light_uniform_buf,
         .light_uniform_stride = light_uniform_stride,
         .bind_group = bind_group,
-        .show_points = show_points,
     };
 }
 

@@ -257,11 +257,11 @@ pub fn bind(model: Model, pass: *gpu.RenderPassEncoder) void {
     }
 }
 
-pub fn draw(model: Model, pass: *gpu.RenderPassEncoder) void {
+pub fn draw(model: Model, pass: *gpu.RenderPassEncoder, instances: u32) void {
     if (model.index_buf) |_| {
-        pass.drawIndexed(model.index_count, 1, 0, 0, 0);
+        pass.drawIndexed(model.index_count, instances, 0, 0, 0);
     } else {
-        pass.draw(model.vertex_count, 1, 0, 0);
+        pass.draw(model.vertex_count, instances, 0, 0);
     }
 }
 

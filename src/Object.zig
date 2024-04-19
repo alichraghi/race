@@ -11,6 +11,7 @@ const gpu = mach.core.gpu;
 const Vec3 = math.Vec3;
 const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
+const Transform = math.Transform;
 const vec3 = math.vec3;
 const vec4 = math.vec4;
 const mat3x3 = math.mat3x3;
@@ -19,7 +20,7 @@ pub const name = .object;
 pub const Mod = mach.Mod(@This());
 
 pub const components = .{
-    .pipeline_config = .{ .type = PipelineConfig },
+    .texture = .{ .type = ?Texture },
     .model = .{ .type = Model },
     .transform = .{ .type = Transform },
 };
@@ -33,9 +34,8 @@ shader: *gpu.ShaderModule,
 camera_uniform: *gpu.Buffer,
 light_list_uniform: *gpu.Buffer,
 
-const PipelineConfig = struct {
-    instance_capacity: u32,
-    texture: ?Texture = null,
+pub const PipelineConfig = struct {
+    texture: ?Texture,
 };
 
 const Pipeline = struct {
@@ -65,9 +65,9 @@ pub fn init(object: *@This()) !void {
     };
 }
 
-pub fn getPipeline(object: *@This(), config: PipelineConfig) !Pipeline {
+pub fn getPipeline(object: *@This(), config: PipelineConfig) !*Pipeline {
     const gop = try object.pipelines.getOrPut(mach.core.allocator, config);
-    if (gop.found_existing) return gop.value_ptr.*;
+    if (gop.found_existing) return gop.value_ptr;
 
     var limits = gpu.SupportedLimits{
         // TODO(sysgpu)
@@ -79,10 +79,16 @@ pub fn getPipeline(object: *@This(), config: PipelineConfig) !Pipeline {
         _ = mach.core.device.getLimits(&limits);
     }
 
-    const model_uniform_stride = math.ceilToNextMultiple(@sizeOf(shaders.ObjectUniform), 256);
+    // TODO: is this value efficient?
+    const capacity = 10;
+
+    const model_uniform_stride = math.ceilToNextMultiple(
+        @sizeOf(shaders.ObjectUniform),
+        limits.limits.min_uniform_buffer_offset_alignment,
+    );
     const model_uniform = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = config.instance_capacity * model_uniform_stride,
+        .size = capacity * model_uniform_stride,
         .mapped_at_creation = .false,
     });
 
@@ -157,7 +163,7 @@ pub fn getPipeline(object: *@This(), config: PipelineConfig) !Pipeline {
         .model_uniform_stride = model_uniform_stride,
     };
 
-    return gop.value_ptr.*;
+    return gop.value_ptr;
 }
 
 pub fn deinit(object: *Mod) !void {
@@ -177,7 +183,8 @@ pub fn deinit(object: *Mod) !void {
 
 // TODO(WORKAROUND): Camera shouldn't be a pointer
 pub fn render(object: *Mod, game: *Game.Mod, camera: *const Camera) !void {
-    const state = object.state();
+    const state: *@This() = object.state(); // TODO: @This -> Object
+    const game_state: *Game = game.state();
 
     mach.core.queue.writeBuffer(
         state.camera_uniform,
@@ -212,16 +219,14 @@ pub fn render(object: *Mod, game: *Game.Mod, camera: *const Camera) !void {
         }},
     );
 
-    archetypes_iter = object.entities.query(.{ .all = &.{.{ .object = &.{ .pipeline_config, .model, .transform } }} });
+    archetypes_iter = object.entities.query(.{ .all = &.{.{ .object = &.{ .texture, .model, .transform } }} });
     while (archetypes_iter.next()) |archetype| for (
-        archetype.slice(.object, .pipeline_config),
+        archetype.slice(.object, .texture),
         archetype.slice(.object, .model),
         archetype.slice(.object, .transform),
         0..,
-    ) |pipeline_config, model, transform, i| {
-        const pipeline = try state.getPipeline(pipeline_config);
-
-        game.state().pass.setPipeline(pipeline.pipeline);
+    ) |texture, model, transform, i| {
+        const pipeline = try state.getPipeline(.{ .texture = texture });
 
         const buffer_offset = @as(u32, @intCast(i)) * pipeline.model_uniform_stride;
         mach.core.queue.writeBuffer(
@@ -232,53 +237,10 @@ pub fn render(object: *Mod, game: *Game.Mod, camera: *const Camera) !void {
                 .normal = transform.normalMat(),
             }},
         );
-        game.state().pass.setBindGroup(0, pipeline.bind_group, &.{buffer_offset});
 
-        model.bind(game.state().pass);
-        model.draw(game.state().pass);
+        game_state.pass.setPipeline(pipeline.pipeline);
+        game_state.pass.setBindGroup(0, pipeline.bind_group, &.{buffer_offset});
+        model.bind(game_state.pass);
+        model.draw(game_state.pass, 1);
     };
 }
-
-pub const Transform = struct {
-    translation: Vec3 = vec3(0, 0, 0),
-    scale: Vec3 = vec3(1, 1, 1),
-    /// in radians
-    rotation: Vec3 = vec3(0, 0, 0),
-
-    pub fn mat(transform: Transform) Mat4x4 {
-        const translation = Mat4x4.translate(transform.translation);
-        const scale = Mat4x4.scale(transform.scale);
-        const rotation = Mat4x4.rotateZ(transform.rotation.z())
-            .mul(&Mat4x4.rotateY(transform.rotation.y()))
-            .mul(&Mat4x4.rotateX(transform.rotation.x()));
-        return translation.mul(&rotation).mul(&scale);
-    }
-
-    pub fn normalMat(transform: Transform) Mat3x3 {
-        const c3 = @cos(transform.rotation.z());
-        const s3 = @sin(transform.rotation.z());
-        const c2 = @cos(transform.rotation.x());
-        const s2 = @sin(transform.rotation.x());
-        const c1 = @cos(transform.rotation.y());
-        const s1 = @sin(transform.rotation.y());
-        const inv_scale = vec3(1, 1, 1).div(&transform.scale);
-
-        return mat3x3(
-            &vec3(
-                inv_scale.x() * (c1 * c3 + s1 * s2 * s3),
-                inv_scale.x() * (c2 * s3),
-                inv_scale.x() * (c1 * s2 * s3 - c3 * s1),
-            ),
-            &vec3(
-                inv_scale.y() * (c3 * s1 * s2 + c1 * s3),
-                inv_scale.y() * (c2 * c3),
-                inv_scale.y() * (c1 * c3 * s2 - s1 * s3),
-            ),
-            &vec3(
-                inv_scale.z() * (c2 * s1),
-                inv_scale.z() * (-s2),
-                inv_scale.z() * (c1 * c2),
-            ),
-        );
-    }
-};
