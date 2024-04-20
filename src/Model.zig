@@ -2,8 +2,7 @@ const std = @import("std");
 const mach = @import("mach");
 const M3d = @import("model3d");
 const wavefront = @import("wavefront.zig");
-// TODO(HACK(SKULL ISSUE))
-const c = @import("ufbx.zig");
+const c = @cImport(@cInclude("ufbx.h"));
 const math = @import("math.zig");
 const core = mach.core;
 const gpu = mach.gpu;

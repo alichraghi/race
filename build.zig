@@ -25,8 +25,7 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addImport("model3d", model3d_dep.module("mach-model3d"));
     exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 
-    // TODO: WHY THIS DOESN'T WORK???
-    // exe.addIncludePath(ufbx_dep.path(""));
+    exe.addIncludePath(ufbx_dep.path(""));
     exe.addCSourceFile(.{ .file = ufbx_dep.path("ufbx.c"), .flags = &.{} });
     exe.linkLibrary(model3d_dep.artifact("mach-model3d"));
     mach.link(b, exe, &exe.root_module);
