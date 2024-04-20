@@ -32,16 +32,15 @@ pub fn ceilToNextMultiple(value: u32, step: u32) u32 {
 
 pub const Transform = struct {
     translation: Vec3 = vec3(0, 0, 0),
-    scale: Vec3 = vec3(1, 1, 1),
     rotation: Vec3 = vec3(0, 0, 0),
+    scale: Vec3 = vec3(1, 1, 1),
 
     pub fn mat(transform: Transform) Mat4x4 {
-        const translation = Mat4x4.translate(transform.translation);
-        const scale = Mat4x4.scale(transform.scale);
-        const rotation = Mat4x4.rotateZ(transform.rotation.z())
+        return Mat4x4.translate(transform.translation)
+            .mul(&Mat4x4.rotateZ(transform.rotation.z())
             .mul(&Mat4x4.rotateY(transform.rotation.y()))
-            .mul(&Mat4x4.rotateX(transform.rotation.x()));
-        return translation.mul(&rotation).mul(&scale);
+            .mul(&Mat4x4.rotateX(transform.rotation.x())))
+            .mul(&Mat4x4.scale(transform.scale));
     }
 
     pub fn normalMat(transform: Transform) Mat3x3 {

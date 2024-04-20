@@ -11,6 +11,8 @@ const Vec3 = math.Vec3;
 const vec3 = math.vec3;
 const vec4 = math.vec4;
 
+const Game = @This();
+
 pass: *gpu.RenderPassEncoder,
 encoder: *gpu.CommandEncoder,
 depth_texture: *gpu.Texture,
@@ -28,7 +30,7 @@ camera_dir: Vec3,
 camera_front: Vec3,
 
 pub const name = .game;
-pub const Mod = mach.Mod(@This());
+pub const Mod = mach.Mod(Game);
 
 pub const global_events = .{
     .init = .{ .handler = init },
@@ -53,6 +55,7 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
         .shader = undefined,
         .camera_uniform = undefined,
         .light_list_uniform = undefined,
+        .instance_buffer = undefined,
     });
     light.init(.{
         .pipeline = undefined,
@@ -69,43 +72,55 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     const quad_model = try Model.initFromFile("assets/quad.m3d");
     try object.set(quad, .texture, null);
     try object.set(quad, .model, quad_model);
-    try object.set(quad, .transform, .{
+    try object.set(quad, .transforms, try mach.core.allocator.dupe(math.Transform, &.{.{
         .translation = vec3(0, 0, 0),
         .scale = vec3(3, 0.01, 3),
-    });
+    }}));
 
     const cube = try object.newEntity();
     const cube_model = try Model.initFromFile("assets/cube.m3d");
     try object.set(cube, .texture, null);
     try object.set(cube, .model, cube_model);
-    try object.set(cube, .transform, .{
+    try object.set(cube, .transforms, try mach.core.allocator.dupe(math.Transform, &.{.{
         .translation = vec3(-1, 0.5, -0.5),
         .scale = vec3(0.5, 0.5, 0.5),
-    });
+    }}));
 
     const wrench = try object.newEntity();
     const wrench_model = try Model.initFromFile("assets/wrench.obj");
     try object.set(wrench, .texture, null);
     try object.set(wrench, .model, wrench_model);
-    try object.set(wrench, .transform, .{
-        .translation = vec3(1, 0.5, 0.5),
-        .rotation = vec3(0, math.pi, 0),
-        .scale = vec3(0.5, 0.5, 0.5),
-    });
+    try object.set(wrench, .transforms, try mach.core.allocator.dupe(math.Transform, &.{
+        .{
+            .translation = vec3(0, 0, 0),
+            .rotation = vec3(0, 0, 0),
+            .scale = vec3(0.5, 0.5, 0.5),
+        },
+        .{
+            .translation = vec3(2, 0, 0),
+            .rotation = vec3(0, 0, 0),
+            .scale = vec3(0.75, 0.75, 0.75),
+        },
+        .{
+            .translation = vec3(5, 0, 0),
+            .rotation = vec3(0, 0, 0),
+            .scale = vec3(1, 1, 1),
+        },
+    }));
 
     // Light
     const light_green = try light.newEntity();
-    try light.set(light_green, .position, vec3(1, 1.5, -0.5));
+    try light.set(light_green, .position, vec3(0, 1.5, -0.5));
     try light.set(light_green, .color, vec4(0, 1, 0, 1));
     try light.set(light_green, .radius, 0.05);
 
     const light_blue = try light.newEntity();
-    try light.set(light_blue, .position, vec3(0, 1.5, 0));
+    try light.set(light_blue, .position, vec3(2, 2.5, 0));
     try light.set(light_blue, .color, vec4(0.5, 0, 1, 1));
     try light.set(light_blue, .radius, 0.05);
 
     const light_red = try light.newEntity();
-    try light.set(light_red, .position, vec3(-1, 1.5, -0.5));
+    try light.set(light_red, .position, vec3(5, 3.5, -0.5));
     try light.set(light_red, .color, vec4(1, 0, 0, 1));
     try light.set(light_red, .radius, 0.05);
 
@@ -132,7 +147,7 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
 }
 
 pub fn deinit(game: *Mod, object: *Object.Mod) !void {
-    const state = game.state();
+    const state: *Game = game.state();
 
     object.send(.deinit, .{});
     state.depth_texture.release();
@@ -140,18 +155,24 @@ pub fn deinit(game: *Mod, object: *Object.Mod) !void {
 }
 
 pub fn tick(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
-    const state = game.state();
+    const state: *Game = game.state();
 
     game.send(.processEvents, .{});
     game.send(.tickCamera, .{});
     game.send(.beginRender, .{});
+
+    // rotate wrench
+    // var trans = object.get(state.wrench, .transforms).?[0];
+    // trans.rotation = trans.rotation.add(&vec3(0, 0.01, 0));
+    // try object.set(state.wrench, .transforms, mach trans);
+
     object.send(.render, .{&state.main_camera});
     light.send(.render, .{&state.main_camera});
     game.send(.endRender, .{});
 }
 
 pub fn tickCamera(game: *Mod) !void {
-    const state = game.state();
+    const state: *Game = game.state();
 
     // Position
     const move_speed = 5 * mach.core.delta_time;
@@ -180,7 +201,7 @@ pub fn tickCamera(game: *Mod) !void {
 }
 
 pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
-    const state = game.state();
+    const state: *Game = game.state();
 
     var iter = mach.core.pollEvents();
     while (iter.next()) |event| {
@@ -225,8 +246,8 @@ pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
     }
 }
 
-pub fn beginRender(game: *Mod, object: *Object.Mod) !void {
-    const state = game.state();
+pub fn beginRender(game: *Mod) !void {
+    const state: *Game = game.state();
 
     const back_buffer_view = mach.core.swap_chain.getCurrentTextureView().?;
     defer back_buffer_view.release();
@@ -248,18 +269,10 @@ pub fn beginRender(game: *Mod, object: *Object.Mod) !void {
     });
 
     state.pass = state.encoder.beginRenderPass(&pass_info);
-
-    // rotate wrench
-    const transform = object.get(state.wrench, .transform).?;
-    try object.set(state.wrench, .transform, .{
-        .rotation = vec3(0, object.get(state.wrench, .transform).?.rotation.y() + 0.01, 0),
-        .scale = transform.scale,
-        .translation = transform.translation,
-    });
 }
 
 pub fn endRender(game: *Mod) !void {
-    const state: *@This() = game.state();
+    const state: *Game = game.state();
 
     state.pass.end();
     state.pass.release();

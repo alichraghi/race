@@ -10,8 +10,10 @@ const gpu = mach.core.gpu;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 
+const Light = @This();
+
 pub const name = .light;
-pub const Mod = mach.Mod(@This());
+pub const Mod = mach.Mod(Light);
 
 pub const components = .{
     .position = .{ .type = Vec3 },
@@ -30,7 +32,7 @@ light_uniform_stride: u32,
 bind_group: *gpu.BindGroup,
 show_points: bool = builtin.mode == .Debug,
 
-pub fn init(light: *@This(), lights_capacity: u32) !void {
+pub fn init(light: *Light, lights_capacity: u32) !void {
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
 

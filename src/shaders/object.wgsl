@@ -15,16 +15,20 @@ struct LightList {
     len: u32,
 };
 
-struct Model {
-    model: mat4x4<f32>,
-    normal: mat3x3<f32>,
+struct InstanceData {
+    @location(4) transform_0: vec4<f32>,
+    @location(5) transform_1: vec4<f32>,
+    @location(6) transform_2: vec4<f32>,
+    @location(7) transform_3: vec4<f32>,
+    @location(8) normal_0: vec3<f32>,
+    @location(9) normal_1: vec3<f32>,
+    @location(10) normal_2: vec3<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> light: LightList;
-@group(0) @binding(2) var<uniform> model: Model;
-@group(0) @binding(3) var diffuse_sampler: sampler;
-@group(0) @binding(4) var texture: texture_2d<f32>;
+@group(0) @binding(2) var diffuse_sampler: sampler;
+@group(0) @binding(3) var texture: texture_2d<f32>;
 
 struct Output {
     @builtin(position) position: vec4<f32>,
@@ -39,16 +43,20 @@ fn vertex_main(
     @location(0) position: vec3<f32>,
     @location(1) color: vec3<f32>, 
     @location(2) normal: vec3<f32>, 
-    @location(3) uv: vec2<f32>
+    @location(3) uv: vec2<f32>,
+    instance: InstanceData,
 ) -> Output {
-    let position_world = model.model * vec4(position, 1);
+    let instance_transform = mat4x4(instance.transform_0, instance.transform_1, instance.transform_2, instance.transform_3);
+    // TODO: what's this? delete it?
+    let instance_normal = mat3x3(instance.normal_0, instance.normal_1, instance.normal_2);
+    let position_world = instance_transform * vec4(position, 1);
 
     var output: Output;
     output.position = camera.projection * camera.view * position_world;
     output.color = color;
     output.uv = uv;
     output.position_world = position_world.xyz;
-    output.normal_world = normalize(model.normal * normal);
+    output.normal_world = normalize(instance_normal * normal);
 
     return output;
 }

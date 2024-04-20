@@ -16,13 +16,15 @@ const vec3 = math.vec3;
 const vec4 = math.vec4;
 const mat3x3 = math.mat3x3;
 
+const Object = @This();
+
 pub const name = .object;
-pub const Mod = mach.Mod(@This());
+pub const Mod = mach.Mod(Object);
 
 pub const components = .{
     .texture = .{ .type = ?Texture },
     .model = .{ .type = Model },
-    .transform = .{ .type = Transform },
+    .transforms = .{ .type = []Transform },
 };
 
 pub const local_events = .{
@@ -33,6 +35,7 @@ pipelines: std.AutoArrayHashMapUnmanaged(PipelineConfig, Pipeline) = .{},
 shader: *gpu.ShaderModule,
 camera_uniform: *gpu.Buffer,
 light_list_uniform: *gpu.Buffer,
+instance_buffer: *gpu.Buffer,
 
 pub const PipelineConfig = struct {
     texture: ?Texture,
@@ -41,11 +44,9 @@ pub const PipelineConfig = struct {
 const Pipeline = struct {
     pipeline: *gpu.RenderPipeline,
     bind_group: *gpu.BindGroup,
-    model_uniform: *gpu.Buffer,
-    model_uniform_stride: u32,
 };
 
-pub fn init(object: *@This()) !void {
+pub fn init(object: *Object) !void {
     const shader = mach.core.device.createShaderModuleWGSL("object", @embedFile("shaders/object.wgsl"));
     const camera_uniform = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
@@ -57,51 +58,35 @@ pub fn init(object: *@This()) !void {
         .size = @sizeOf(shaders.LightListUniform),
         .mapped_at_creation = .false,
     });
+    const instance_buffer = mach.core.device.createBuffer(&.{
+        .usage = .{ .vertex = true, .copy_dst = true },
+        .size = @sizeOf(shaders.InstanceData) * 1024, // TODO: enough?
+        .mapped_at_creation = .false,
+    });
 
     object.* = .{
         .shader = shader,
         .camera_uniform = camera_uniform,
         .light_list_uniform = light_list_uniform,
+        .instance_buffer = instance_buffer,
     };
 }
 
-pub fn getPipeline(object: *@This(), config: PipelineConfig) !*Pipeline {
+pub fn getPipeline(object: *Object, config: PipelineConfig) !*Pipeline {
     const gop = try object.pipelines.getOrPut(mach.core.allocator, config);
     if (gop.found_existing) return gop.value_ptr;
-
-    var limits = gpu.SupportedLimits{
-        // TODO(sysgpu)
-        .limits = .{
-            .min_uniform_buffer_offset_alignment = 256,
-        },
-    };
-    if (!build_options.use_sysgpu) {
-        _ = mach.core.device.getLimits(&limits);
-    }
-
-    // TODO: is this value efficient?
-    const capacity = 10;
-
-    const model_uniform_stride = math.ceilToNextMultiple(
-        @sizeOf(shaders.ObjectUniform),
-        limits.limits.min_uniform_buffer_offset_alignment,
-    );
-    const model_uniform = mach.core.device.createBuffer(&.{
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = capacity * model_uniform_stride,
-        .mapped_at_creation = .false,
-    });
 
     const marble_texture = try Texture.initFromFile("assets/missing.png");
 
     const bind_group_layout = mach.core.device.createBindGroupLayout(
-        &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
-            gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
-            gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
-            gpu.BindGroupLayout.Entry.buffer(2, .{ .vertex = true }, .uniform, true, 0),
-            gpu.BindGroupLayout.Entry.sampler(3, .{ .fragment = true }, .filtering),
-            gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .float, .dimension_2d, false),
-        } }),
+        &gpu.BindGroupLayout.Descriptor.init(.{
+            .entries = &.{
+                gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
+                gpu.BindGroupLayout.Entry.sampler(2, .{ .fragment = true }, .filtering),
+                gpu.BindGroupLayout.Entry.texture(3, .{ .fragment = true }, .float, .dimension_2d, false),
+            },
+        }),
     );
     defer bind_group_layout.release();
 
@@ -118,13 +103,8 @@ pub fn getPipeline(object: *@This(), config: PipelineConfig) !*Pipeline {
                     gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform), 0)
                 else
                     gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
-                if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(2, model_uniform, 0, model_uniform_stride, 0)
-                else
-                    gpu.BindGroup.Entry.buffer(2, model_uniform, 0, model_uniform_stride),
-
-                gpu.BindGroup.Entry.sampler(3, marble_texture.sampler),
-                gpu.BindGroup.Entry.textureView(4, marble_texture.view),
+                gpu.BindGroup.Entry.sampler(2, marble_texture.sampler),
+                gpu.BindGroup.Entry.textureView(3, marble_texture.view),
             },
         }),
     );
@@ -146,7 +126,7 @@ pub fn getPipeline(object: *@This(), config: PipelineConfig) !*Pipeline {
         .vertex = gpu.VertexState.init(.{
             .module = object.shader,
             .entry_point = "vertex_main",
-            .buffers = &.{Model.Vertex.layout},
+            .buffers = &.{ Model.Vertex.layout, shaders.InstanceData.layout },
         }),
         .depth_stencil = &.{
             .format = .depth24_plus,
@@ -156,13 +136,7 @@ pub fn getPipeline(object: *@This(), config: PipelineConfig) !*Pipeline {
     };
     const pipeline = mach.core.device.createRenderPipeline(&pipeline_descriptor);
 
-    gop.value_ptr.* = .{
-        .pipeline = pipeline,
-        .bind_group = bind_group,
-        .model_uniform = model_uniform,
-        .model_uniform_stride = model_uniform_stride,
-    };
-
+    gop.value_ptr.* = .{ .pipeline = pipeline, .bind_group = bind_group };
     return gop.value_ptr;
 }
 
@@ -172,18 +146,16 @@ pub fn deinit(object: *Mod) !void {
     state.shader.release();
     state.camera_uniform.release();
     state.light_uniform.release();
-    state.pipeline_keys.deinit(mach.core.allocator);
     for (state.pipelines.values()) |pipeline| {
         pipeline.pipeline.release();
         pipeline.bind_group.release();
-        pipeline.model_uniform.release();
     }
     state.pipelines.deinit(mach.core.allocator);
 }
 
 // TODO(WORKAROUND): Camera shouldn't be a pointer
 pub fn render(object: *Mod, game: *Game.Mod, camera: *const Camera) !void {
-    const state: *@This() = object.state(); // TODO: @This -> Object
+    const state: *Object = object.state();
     const game_state: *Game = game.state();
 
     mach.core.queue.writeBuffer(
@@ -219,28 +191,43 @@ pub fn render(object: *Mod, game: *Game.Mod, camera: *const Camera) !void {
         }},
     );
 
-    archetypes_iter = object.entities.query(.{ .all = &.{.{ .object = &.{ .texture, .model, .transform } }} });
+    var buffer_offset: u32 = 0;
+    archetypes_iter = object.entities.query(.{ .all = &.{.{ .object = &.{ .texture, .model, .transforms } }} });
     while (archetypes_iter.next()) |archetype| for (
         archetype.slice(.object, .texture),
         archetype.slice(.object, .model),
-        archetype.slice(.object, .transform),
-        0..,
-    ) |texture, model, transform, i| {
+        archetype.slice(.object, .transforms),
+    ) |texture, model, transforms| {
         const pipeline = try state.getPipeline(.{ .texture = texture });
 
-        const buffer_offset = @as(u32, @intCast(i)) * pipeline.model_uniform_stride;
-        mach.core.queue.writeBuffer(
-            pipeline.model_uniform,
-            buffer_offset,
-            &[_]shaders.ObjectUniform{.{
-                .model = transform.mat(),
-                .normal = transform.normalMat(),
-            }},
-        );
+        const start_offset = buffer_offset;
+        std.debug.assert(transforms.len > 0);
+
+        for (transforms) |transform| {
+            // writeBuffer is just a @memcpy
+            mach.core.queue.writeBuffer(
+                state.instance_buffer,
+                buffer_offset,
+                &[_]shaders.InstanceData{.{
+                    .transform = transform.mat(),
+                    .normal = transform.normalMat(),
+                }},
+            );
+            buffer_offset += @sizeOf(shaders.InstanceData);
+        }
 
         game_state.pass.setPipeline(pipeline.pipeline);
-        game_state.pass.setBindGroup(0, pipeline.bind_group, &.{buffer_offset});
-        model.bind(game_state.pass);
-        model.draw(game_state.pass, 1);
+        game_state.pass.setBindGroup(0, pipeline.bind_group, &.{});
+        game_state.pass.setVertexBuffer(0, model.vertex_buf, 0, model.vertex_count * @sizeOf(Model.Vertex));
+        game_state.pass.setVertexBuffer(1, state.instance_buffer, start_offset, transforms.len * @sizeOf(shaders.InstanceData));
+        if (model.index_buf) |index_buf| {
+            game_state.pass.setIndexBuffer(index_buf, .uint32, 0, model.index_count * @sizeOf(u32));
+        }
+
+        if (model.index_buf) |_| {
+            game_state.pass.drawIndexed(model.index_count, @intCast(transforms.len), 0, 0, 0);
+        } else {
+            game_state.pass.draw(model.vertex_count, @intCast(transforms.len), 0, 0);
+        }
     };
 }

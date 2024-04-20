@@ -250,21 +250,7 @@ pub fn deinit(model: Model) void {
     }
 }
 
-pub fn bind(model: Model, pass: *gpu.RenderPassEncoder) void {
-    pass.setVertexBuffer(0, model.vertex_buf, 0, model.vertex_count * @sizeOf(Vertex));
-    if (model.index_buf) |index_buf| {
-        pass.setIndexBuffer(index_buf, .uint32, 0, model.index_count * @sizeOf(u32));
-    }
-}
-
-pub fn draw(model: Model, pass: *gpu.RenderPassEncoder, instances: u32) void {
-    if (model.index_buf) |_| {
-        pass.drawIndexed(model.index_count, instances, 0, 0, 0);
-    } else {
-        pass.draw(model.vertex_count, instances, 0, 0);
-    }
-}
-
+// TODO: move to shaders.zig
 pub const Vertex = struct {
     position: Vec3,
     color: Vec3 = vec3(1, 1, 1), // TODO

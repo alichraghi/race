@@ -17,9 +17,53 @@ pub const LightUniform = struct {
     radius: f32,
 };
 
-pub const ObjectUniform = struct {
-    model: Mat4x4,
+pub const InstanceData = struct {
+    transform: Mat4x4,
     normal: Mat3x3,
+
+    pub const attributes = [_]gpu.VertexAttribute{
+        .{
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 0,
+            .shader_location = 4,
+        },
+        .{
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 1,
+            .shader_location = 5,
+        },
+        .{
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 2,
+            .shader_location = 6,
+        },
+        .{
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 3,
+            .shader_location = 7,
+        },
+        .{
+            .format = .float32x3,
+            .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 0,
+            .shader_location = 8,
+        },
+        .{
+            .format = .float32x3,
+            .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 1,
+            .shader_location = 9,
+        },
+        .{
+            .format = .float32x3,
+            .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 2,
+            .shader_location = 10,
+        },
+    };
+
+    pub const layout = gpu.VertexBufferLayout.init(.{
+        .array_stride = @sizeOf(InstanceData),
+        .step_mode = .instance,
+        .attributes = &attributes,
+    });
 };
 
 pub const max_lights = 10;
