@@ -6,7 +6,7 @@ const Camera = @import("Camera.zig");
 const Game = @import("Game.zig");
 const math = @import("math.zig");
 const shaders = @import("shaders.zig");
-const gpu = mach.core.gpu;
+const gpu = mach.gpu;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 
@@ -139,8 +139,7 @@ pub fn deinit(light: *Mod) !void {
     state.light_uniform_buf.release();
 }
 
-// TODO(WORKAROUND): Camera shouldn't be a pointer
-pub fn render(light: *Mod, game: *Game.Mod, camera: *const Camera) !void {
+pub fn render(light: *Mod, game: *Game.Mod, camera: Camera) !void {
     const state = light.state();
     const game_state = game.state();
 

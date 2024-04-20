@@ -6,7 +6,7 @@ const Object = @import("Object.zig");
 const Light = @import("Light.zig");
 const Model = @import("Model.zig");
 const Core = mach.Core;
-const gpu = mach.core.gpu;
+const gpu = mach.gpu;
 const Vec3 = math.Vec3;
 const vec3 = math.vec3;
 const vec4 = math.vec4;
@@ -166,8 +166,8 @@ pub fn tick(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     // trans.rotation = trans.rotation.add(&vec3(0, 0.01, 0));
     // try object.set(state.wrench, .transforms, mach trans);
 
-    object.send(.render, .{&state.main_camera});
-    light.send(.render, .{&state.main_camera});
+    object.send(.render, .{state.main_camera});
+    light.send(.render, .{state.main_camera});
     game.send(.endRender, .{});
 }
 

@@ -7,7 +7,7 @@ const Camera = @import("Camera.zig");
 const Texture = @import("Texture.zig");
 const shaders = @import("shaders.zig");
 const math = @import("math.zig");
-const gpu = mach.core.gpu;
+const gpu = mach.gpu;
 const Vec3 = math.Vec3;
 const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
@@ -153,8 +153,7 @@ pub fn deinit(object: *Mod) !void {
     state.pipelines.deinit(mach.core.allocator);
 }
 
-// TODO(WORKAROUND): Camera shouldn't be a pointer
-pub fn render(object: *Mod, game: *Game.Mod, camera: *const Camera) !void {
+pub fn render(object: *Mod, game: *Game.Mod, camera: Camera) !void {
     const state: *Object = object.state();
     const game_state: *Game = game.state();
 

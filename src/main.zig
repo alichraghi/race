@@ -2,12 +2,7 @@ const std = @import("std");
 const mach = @import("mach");
 const build_options = @import("build_options");
 
-pub const mach_core_options = mach.core.ComptimeOptions{
-    .use_wgpu = !build_options.use_sysgpu,
-    .use_sysgpu = build_options.use_sysgpu,
-};
-
-pub const SYSGPUInterface = mach.sysgpu.Impl;
+pub const use_sysgpu = build_options.use_sysgpu;
 
 pub const modules = .{
     mach.Core,
