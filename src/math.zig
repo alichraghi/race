@@ -30,44 +30,38 @@ pub fn ceilToNextMultiple(value: u32, step: u32) u32 {
     return step * divide_and_ceil;
 }
 
-pub const Transform = struct {
-    translation: Vec3 = vec3(0, 0, 0),
-    rotation: Vec3 = vec3(0, 0, 0),
-    scale: Vec3 = vec3(1, 1, 1),
+pub fn transform(translation: Vec3, rotation: Vec3, scale: Vec3) Mat4x4 {
+    return Mat4x4.translate(translation)
+        .mul(&Mat4x4.rotateZ(rotation.z())
+        .mul(&Mat4x4.rotateY(rotation.y()))
+        .mul(&Mat4x4.rotateX(rotation.x())))
+        .mul(&Mat4x4.scale(scale));
+}
 
-    pub fn mat(transform: Transform) Mat4x4 {
-        return Mat4x4.translate(transform.translation)
-            .mul(&Mat4x4.rotateZ(transform.rotation.z())
-            .mul(&Mat4x4.rotateY(transform.rotation.y()))
-            .mul(&Mat4x4.rotateX(transform.rotation.x())))
-            .mul(&Mat4x4.scale(transform.scale));
-    }
+pub fn transformNormal(rotation: Vec3, scale: Vec3) Mat3x3 {
+    const c3 = @cos(rotation.z());
+    const s3 = @sin(rotation.z());
+    const c2 = @cos(rotation.x());
+    const s2 = @sin(rotation.x());
+    const c1 = @cos(rotation.y());
+    const s1 = @sin(rotation.y());
+    const inv_scale = vec3(1, 1, 1).div(&scale);
 
-    pub fn normalMat(transform: Transform) Mat3x3 {
-        const c3 = @cos(transform.rotation.z());
-        const s3 = @sin(transform.rotation.z());
-        const c2 = @cos(transform.rotation.x());
-        const s2 = @sin(transform.rotation.x());
-        const c1 = @cos(transform.rotation.y());
-        const s1 = @sin(transform.rotation.y());
-        const inv_scale = vec3(1, 1, 1).div(&transform.scale);
-
-        return mat3x3(
-            &vec3(
-                inv_scale.x() * (c1 * c3 + s1 * s2 * s3),
-                inv_scale.x() * (c2 * s3),
-                inv_scale.x() * (c1 * s2 * s3 - c3 * s1),
-            ),
-            &vec3(
-                inv_scale.y() * (c3 * s1 * s2 + c1 * s3),
-                inv_scale.y() * (c2 * c3),
-                inv_scale.y() * (c1 * c3 * s2 - s1 * s3),
-            ),
-            &vec3(
-                inv_scale.z() * (c2 * s1),
-                inv_scale.z() * (-s2),
-                inv_scale.z() * (c1 * c2),
-            ),
-        );
-    }
-};
+    return mat3x3(
+        &vec3(
+            inv_scale.x() * (c1 * c3 + s1 * s2 * s3),
+            inv_scale.x() * (c2 * s3),
+            inv_scale.x() * (c1 * s2 * s3 - c3 * s1),
+        ),
+        &vec3(
+            inv_scale.y() * (c3 * s1 * s2 + c1 * s3),
+            inv_scale.y() * (c2 * c3),
+            inv_scale.y() * (c1 * c3 * s2 - s1 * s3),
+        ),
+        &vec3(
+            inv_scale.z() * (c2 * s1),
+            inv_scale.z() * (-s2),
+            inv_scale.z() * (c1 * c2),
+        ),
+    );
+}

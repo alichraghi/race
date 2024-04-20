@@ -72,25 +72,19 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     const quad_model = try Model.initFromFile("assets/quad.m3d");
     try object.set(quad, .texture, null);
     try object.set(quad, .model, quad_model);
-    try object.set(quad, .transforms, try mach.core.allocator.dupe(math.Transform, &.{.{
-        .translation = vec3(0, 0, 0),
-        .scale = vec3(3, 0.01, 3),
-    }}));
+    try object.set(quad, .transform, .{ .scale = vec3(3, 0.01, 3) });
 
     const cube = try object.newEntity();
     const cube_model = try Model.initFromFile("assets/cube.m3d");
     try object.set(cube, .texture, null);
     try object.set(cube, .model, cube_model);
-    try object.set(cube, .transforms, try mach.core.allocator.dupe(math.Transform, &.{.{
-        .translation = vec3(-1, 0.5, -0.5),
-        .scale = vec3(0.5, 0.5, 0.5),
-    }}));
+    try object.set(cube, .transform, .{ .scale = vec3(0.5, 0.5, 0.5) });
 
     const wrench = try object.newEntity();
     const wrench_model = try Model.initFromFile("assets/wrench.obj");
     try object.set(wrench, .texture, null);
     try object.set(wrench, .model, wrench_model);
-    try object.set(wrench, .transforms, try mach.core.allocator.dupe(math.Transform, &.{
+    try object.set(wrench, .instances, try mach.core.allocator.dupe(Object.Transform, &.{
         .{
             .translation = vec3(0, 0, 0),
             .rotation = vec3(0, 0, 0),

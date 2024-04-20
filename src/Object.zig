@@ -11,7 +11,6 @@ const gpu = mach.gpu;
 const Vec3 = math.Vec3;
 const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
-const Transform = math.Transform;
 const vec3 = math.vec3;
 const vec4 = math.vec4;
 const mat3x3 = math.mat3x3;
@@ -24,7 +23,8 @@ pub const Mod = mach.Mod(Object);
 pub const components = .{
     .texture = .{ .type = ?Texture },
     .model = .{ .type = Model },
-    .transforms = .{ .type = []Transform },
+    .transform = .{ .type = Transform },
+    .instances = .{ .type = []Transform },
 };
 
 pub const local_events = .{
@@ -36,6 +36,12 @@ shader: *gpu.ShaderModule,
 camera_uniform: *gpu.Buffer,
 light_list_uniform: *gpu.Buffer,
 instance_buffer: *gpu.Buffer,
+
+pub const Transform = struct {
+    translation: Vec3 = vec3(0, 0, 0),
+    rotation: Vec3 = vec3(0, 0, 0),
+    scale: Vec3 = vec3(1, 1, 1),
+};
 
 pub const PipelineConfig = struct {
     texture: ?Texture,
@@ -157,6 +163,7 @@ pub fn render(object: *Mod, game: *Game.Mod, camera: Camera) !void {
     const state: *Object = object.state();
     const game_state: *Game = game.state();
 
+    // Camera Uniform
     mach.core.queue.writeBuffer(
         state.camera_uniform,
         0,
@@ -166,9 +173,10 @@ pub fn render(object: *Mod, game: *Game.Mod, camera: Camera) !void {
         }},
     );
 
+    // Light Uniform
     var lights = std.BoundedArray(shaders.LightUniform, shaders.max_lights){};
-    var archetypes_iter = object.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
-    while (archetypes_iter.next()) |archetype| for (
+    var lights_iter = object.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
+    while (lights_iter.next()) |archetype| for (
         archetype.slice(.light, .position),
         archetype.slice(.light, .color),
         archetype.slice(.light, .radius),
@@ -190,26 +198,31 @@ pub fn render(object: *Mod, game: *Game.Mod, camera: Camera) !void {
         }},
     );
 
+    // Instance Data
     var buffer_offset: u32 = 0;
-    archetypes_iter = object.entities.query(.{ .all = &.{.{ .object = &.{ .texture, .model, .transforms } }} });
-    while (archetypes_iter.next()) |archetype| for (
+    var object_iter = object.entities.query(.{ .all = &.{.{ .object = &.{ .texture, .model } }} });
+    while (object_iter.next()) |archetype| for (
+        archetype.slice(.entity, .id),
         archetype.slice(.object, .texture),
         archetype.slice(.object, .model),
-        archetype.slice(.object, .transforms),
-    ) |texture, model, transforms| {
+    ) |id, texture, model| {
+        const transform = object.get(id, .transform);
+        const instances = object.get(id, .instances);
+
         const pipeline = try state.getPipeline(.{ .texture = texture });
 
-        const start_offset = buffer_offset;
+        const transforms = if (transform) |single| &.{single} else instances.?;
         std.debug.assert(transforms.len > 0);
 
-        for (transforms) |transform| {
+        const start_offset = buffer_offset;
+        for (transforms) |instance| {
             // writeBuffer is just a @memcpy
             mach.core.queue.writeBuffer(
                 state.instance_buffer,
                 buffer_offset,
                 &[_]shaders.InstanceData{.{
-                    .transform = transform.mat(),
-                    .normal = transform.normalMat(),
+                    .transform = math.transform(instance.translation, instance.rotation, instance.scale),
+                    .normal = math.transformNormal(instance.rotation, instance.scale),
                 }},
             );
             buffer_offset += @sizeOf(shaders.InstanceData);
