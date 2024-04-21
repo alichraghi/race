@@ -252,7 +252,6 @@ pub fn deinit(model: Model) void {
 // TODO: move to shaders.zig
 pub const Vertex = struct {
     position: Vec3,
-    color: Vec3 = vec3(1, 1, 1), // TODO
     normal: Vec3 = vec3(0, 0, 0), // TODO
     uv: Vec2 = vec2(0, 0), // TODO
 
@@ -264,18 +263,13 @@ pub const Vertex = struct {
         },
         .{
             .format = .float32x3,
-            .offset = @offsetOf(Vertex, "color"),
-            .shader_location = 1,
-        },
-        .{
-            .format = .float32x3,
             .offset = @offsetOf(Vertex, "normal"),
-            .shader_location = 2,
+            .shader_location = 1,
         },
         .{
             .format = .float32x2,
             .offset = @offsetOf(Vertex, "uv"),
-            .shader_location = 3,
+            .shader_location = 2,
         },
     };
 

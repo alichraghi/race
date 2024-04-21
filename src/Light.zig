@@ -140,42 +140,45 @@ pub fn deinit(light: *Mod) !void {
 }
 
 pub fn render(light: *Mod, game: *Game.Mod, camera: Camera) !void {
-    const state = light.state();
-    const game_state = game.state();
+    _ = light;
+    _ = game;
+    _ = camera;
+    // const state = light.state();
+    // const game_state = game.state();
 
-    if (!state.show_points) return;
+    // if (!state.show_points) return;
 
-    game_state.pass.setPipeline(state.pipeline);
+    // game_state.pass.setPipeline(state.pipeline);
 
-    mach.core.queue.writeBuffer(
-        state.camera_uniform_buf,
-        0,
-        &[_]shaders.CameraUniform{.{
-            .projection = camera.projection,
-            .view = camera.view,
-        }},
-    );
+    // mach.core.queue.writeBuffer(
+    //     state.camera_uniform_buf,
+    //     0,
+    //     &[_]shaders.CameraUniform{.{
+    //         .projection = camera.projection,
+    //         .view = camera.view,
+    //     }},
+    // );
 
-    var archetypes_iter = light.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
-    while (archetypes_iter.next()) |archetype| {
-        for (
-            archetype.slice(.light, .position),
-            archetype.slice(.light, .color),
-            archetype.slice(.light, .radius),
-            0..,
-        ) |position, color, radius, i| {
-            const buffer_offset = @as(u32, @intCast(i)) * state.light_uniform_stride;
-            mach.core.queue.writeBuffer(
-                state.light_uniform_buf,
-                buffer_offset,
-                &[_]shaders.LightUniform{.{
-                    .position = position, // TODO: x is reverted!?
-                    .color = color,
-                    .radius = radius,
-                }},
-            );
-            game_state.pass.setBindGroup(0, state.bind_group, &.{buffer_offset});
-            game_state.pass.draw(6, 1, 0, 0);
-        }
-    }
+    // var archetypes_iter = light.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
+    // while (archetypes_iter.next()) |archetype| {
+    //     for (
+    //         archetype.slice(.light, .position),
+    //         archetype.slice(.light, .color),
+    //         archetype.slice(.light, .radius),
+    //         0..,
+    //     ) |position, color, radius, i| {
+    //         const buffer_offset = @as(u32, @intCast(i)) * state.light_uniform_stride;
+    //         mach.core.queue.writeBuffer(
+    //             state.light_uniform_buf,
+    //             buffer_offset,
+    //             &[_]shaders.LightUniform{.{
+    //                 .position = position, // TODO: x is reverted!?
+    //                 .color = color,
+    //                 .radius = radius,
+    //             }},
+    //         );
+    //         game_state.pass.setBindGroup(0, state.bind_group, &.{buffer_offset});
+    //         game_state.pass.draw(6, 1, 0, 0);
+    //     }
+    // }
 }

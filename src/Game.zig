@@ -13,11 +13,6 @@ const vec4 = math.vec4;
 
 const Game = @This();
 
-pass: *gpu.RenderPassEncoder,
-encoder: *gpu.CommandEncoder,
-depth_texture: *gpu.Texture,
-depth_view: *gpu.TextureView,
-
 main_camera: Camera,
 wrench: mach.EntityID,
 quad: mach.EntityID,
@@ -47,16 +42,8 @@ pub const local_events = .{
 pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     mach.core.setCursorMode(.disabled);
 
-    // Depth Texture
-    const depth_texture, const depth_view = createDepthTexture();
-
     // Init modules
-    object.init(.{
-        .shader = undefined,
-        .camera_uniform = undefined,
-        .light_list_uniform = undefined,
-        .instance_buffer = undefined,
-    });
+    object.init(undefined);
     light.init(.{
         .pipeline = undefined,
         .camera_uniform_buf = undefined,
@@ -81,7 +68,7 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     try object.set(cube, .transform, .{ .scale = vec3(0.5, 0.5, 0.5) });
 
     const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile("assets/wrench.obj");
+    const wrench_model = try Model.initFromFile("assets/dragon.m3d");
     try object.set(wrench, .texture, null);
     try object.set(wrench, .model, wrench_model);
     try object.set(wrench, .instances, try mach.core.allocator.dupe(Object.Transform, &.{
@@ -106,17 +93,17 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     const light_green = try light.newEntity();
     try light.set(light_green, .position, vec3(0, 1.5, -0.5));
     try light.set(light_green, .color, vec4(0, 1, 0, 1));
-    try light.set(light_green, .radius, 0.05);
+    try light.set(light_green, .radius, 20);
 
     const light_blue = try light.newEntity();
     try light.set(light_blue, .position, vec3(2, 2.5, 0));
     try light.set(light_blue, .color, vec4(0.5, 0, 1, 1));
-    try light.set(light_blue, .radius, 0.05);
+    try light.set(light_blue, .radius, 20);
 
     const light_red = try light.newEntity();
     try light.set(light_red, .position, vec3(5, 3.5, -0.5));
     try light.set(light_red, .color, vec4(1, 0, 0, 1));
-    try light.set(light_red, .radius, 0.05);
+    try light.set(light_red, .radius, 20);
 
     // Camera
     const main_camera = Camera{};
@@ -125,10 +112,6 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     const camera_front = math.worldSpaceDirection(camera_rot);
 
     game.init(.{
-        .pass = undefined,
-        .encoder = mach.core.device.createCommandEncoder(&.{}),
-        .depth_texture = depth_texture,
-        .depth_view = depth_view,
         .main_camera = main_camera,
         .wrench = wrench,
         .quad = quad,
@@ -148,12 +131,12 @@ pub fn deinit(game: *Mod, object: *Object.Mod) !void {
     state.depth_view.release();
 }
 
-pub fn tick(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
+pub fn tick(game: *Mod, object: *Object.Mod) !void {
     const state: *Game = game.state();
 
     game.send(.processEvents, .{});
     game.send(.tickCamera, .{});
-    game.send(.beginRender, .{});
+    // game.send(.beginRender, .{});
 
     // rotate wrench
     // var trans = object.get(state.wrench, .transforms).?[0];
@@ -161,8 +144,8 @@ pub fn tick(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     // try object.set(state.wrench, .transforms, mach trans);
 
     object.send(.render, .{state.main_camera});
-    light.send(.render, .{state.main_camera});
-    game.send(.endRender, .{});
+    // light.send(.render, .{state.main_camera});
+    // game.send(.endRender, .{});
 }
 
 pub fn tickCamera(game: *Mod) !void {
@@ -232,7 +215,7 @@ pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
                 state.camera_front = math.worldSpaceDirection(state.camera_rot);
             },
             .framebuffer_resize => {
-                state.depth_texture, state.depth_view = createDepthTexture();
+                // state.depth_texture, state.depth_view = createDepthTexture();
             },
             .close => core.send(.exit, .{}),
             else => {},
@@ -240,45 +223,53 @@ pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
     }
 }
 
-pub fn beginRender(game: *Mod) !void {
-    const state: *Game = game.state();
+pub fn beginRender(game: *Mod, object: *Object.Mod) !void {
+    _ = game;
+    _ = object;
+    // const state: *Game = game.state();
 
-    const back_buffer_view = mach.core.swap_chain.getCurrentTextureView().?;
-    defer back_buffer_view.release();
+    // const back_buffer_view = mach.core.swap_chain.getCurrentTextureView().?;
+    // defer back_buffer_view.release();
 
-    const color_attachment = gpu.RenderPassColorAttachment{
-        .view = back_buffer_view,
-        .clear_value = .{ .r = 0.09375, .g = 0.09375, .b = 0.09375, .a = 0 },
-        .load_op = .clear,
-        .store_op = .store,
-    };
-    const pass_info = gpu.RenderPassDescriptor.init(.{
-        .color_attachments = &.{color_attachment},
-        .depth_stencil_attachment = &.{
-            .view = state.depth_view,
-            .depth_clear_value = 1.0,
-            .depth_load_op = .clear,
-            .depth_store_op = .store,
-        },
-    });
-
-    state.pass = state.encoder.beginRenderPass(&pass_info);
+    // const pass_info = gpu.RenderPassDescriptor.init(.{
+    //     .color_attachments = &.{
+    //         .{
+    //             .view = object.state.gbuffer_texture.view,
+    //             .clearValue = .{ .r = 0, .g = 0, .b = 1, .a = 1 },
+    //             .load_op = .clear,
+    //             .store_op = .store,
+    //         },
+    //         .{
+    //             .view = object.state.gbuffer_texture_albedo.view,
+    //             .clearValue = .{ .r = 0, .g = 0, .b = 0, .a = 1 },
+    //             .load_op = .clear,
+    //             .store_op = .store,
+    //         },
+    //     },
+    //     .depth_stencil_attachment = &.{
+    //         .view = state.depth_view,
+    //         .depth_clear_value = 1.0,
+    //         .depth_load_op = .clear,
+    //         .depth_store_op = .store,
+    //     },
+    // });
 }
 
 pub fn endRender(game: *Mod) !void {
-    const state: *Game = game.state();
+    _ = game;
+    // const state: *Game = game.state();
 
-    state.pass.end();
-    state.pass.release();
+    // state.pass.end();
+    // state.pass.release();
 
-    var command = state.encoder.finish(null);
-    defer command.release();
-    state.encoder.release();
-    mach.core.queue.submit(&[_]*gpu.CommandBuffer{command});
+    // var command = state.encoder.finish(null);
+    // defer command.release();
+    // state.encoder.release();
+    // mach.core.queue.submit(&[_]*gpu.CommandBuffer{command});
 
-    // Prepare for next pass
-    state.encoder = mach.core.device.createCommandEncoder(&.{});
-    mach.core.swap_chain.present();
+    // // Prepare for next pass
+    // state.encoder = mach.core.device.createCommandEncoder(&.{});
+    // mach.core.swap_chain.present();
 }
 
 pub fn createDepthTexture() struct { *gpu.Texture, *gpu.TextureView } {

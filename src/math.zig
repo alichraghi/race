@@ -3,6 +3,7 @@ const Vec3 = math.Vec3;
 const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
 const vec3 = math.vec3;
+const vec4 = math.vec4;
 const mat3x3 = math.mat3x3;
 const mat4x4 = math.mat4x4;
 
@@ -38,7 +39,7 @@ pub fn transform(translation: Vec3, rotation: Vec3, scale: Vec3) Mat4x4 {
         .mul(&Mat4x4.scale(scale));
 }
 
-pub fn transformNormal(rotation: Vec3, scale: Vec3) Mat3x3 {
+pub fn transformNormal(rotation: Vec3, scale: Vec3) Mat4x4 {
     const c3 = @cos(rotation.z());
     const s3 = @sin(rotation.z());
     const c2 = @cos(rotation.x());
@@ -47,21 +48,25 @@ pub fn transformNormal(rotation: Vec3, scale: Vec3) Mat3x3 {
     const s1 = @sin(rotation.y());
     const inv_scale = vec3(1, 1, 1).div(&scale);
 
-    return mat3x3(
-        &vec3(
+    return mat4x4(
+        &vec4(
             inv_scale.x() * (c1 * c3 + s1 * s2 * s3),
             inv_scale.x() * (c2 * s3),
             inv_scale.x() * (c1 * s2 * s3 - c3 * s1),
+            0,
         ),
-        &vec3(
+        &vec4(
             inv_scale.y() * (c3 * s1 * s2 + c1 * s3),
             inv_scale.y() * (c2 * c3),
             inv_scale.y() * (c1 * c3 * s2 - s1 * s3),
+            0,
         ),
-        &vec3(
+        &vec4(
             inv_scale.z() * (c2 * s1),
             inv_scale.z() * (-s2),
             inv_scale.z() * (c1 * c2),
+            0,
         ),
+        &vec4(0, 0, 0, 1),
     );
 }

@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addImport("mach", mach_dep.module("mach"));
     exe.root_module.addImport("model3d", model3d_dep.module("mach-model3d"));
     exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
+    b.installArtifact(exe);
 
     exe.addIncludePath(ufbx_dep.path(""));
     exe.addCSourceFile(.{ .file = ufbx_dep.path("ufbx.c"), .flags = &.{} });

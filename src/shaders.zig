@@ -6,55 +6,62 @@ const Vec4 = math.Vec4;
 const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
 
-pub const CameraUniform = struct {
-    projection: Mat4x4,
-    view: Mat4x4,
+pub const CameraUniform = extern struct {
+    projection_view: Mat4x4,
+    inverse_projection_view: Mat4x4,
 };
 
-pub const LightUniform = struct {
+pub const ConfigUniform = extern struct { num_lights: u32 };
+
+pub const LightUniform = extern struct {
     position: Vec3,
     color: Vec4,
     radius: f32,
 };
 
-pub const InstanceData = struct {
-    transform: Mat4x4,
-    normal: Mat3x3,
+pub const InstanceData = extern struct {
+    model: Mat4x4,
+    model_normal: Mat4x4,
 
     pub const attributes = [_]gpu.VertexAttribute{
         .{
             .format = .float32x4,
-            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 0,
+            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 0,
+            .shader_location = 3,
+        },
+        .{
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 1,
             .shader_location = 4,
         },
         .{
             .format = .float32x4,
-            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 1,
+            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 2,
             .shader_location = 5,
         },
         .{
             .format = .float32x4,
-            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 2,
+            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 3,
             .shader_location = 6,
         },
         .{
-            .format = .float32x4,
-            .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 3,
+            .format = .float32x3,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 0,
             .shader_location = 7,
         },
         .{
             .format = .float32x3,
-            .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 0,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 1,
             .shader_location = 8,
         },
         .{
             .format = .float32x3,
-            .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 1,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 2,
             .shader_location = 9,
         },
         .{
             .format = .float32x3,
-            .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 2,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 3,
             .shader_location = 10,
         },
     };
@@ -67,7 +74,7 @@ pub const InstanceData = struct {
 };
 
 pub const max_lights = 10;
-pub const LightListUniform = struct {
+pub const LightListUniform = extern struct {
     ambient_color: Vec4,
     lights: [max_lights]LightUniform,
     len: u32,
