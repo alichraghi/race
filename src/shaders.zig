@@ -11,12 +11,9 @@ pub const CameraUniform = extern struct {
     inverse_projection_view: Mat4x4,
 };
 
-pub const ConfigUniform = extern struct { num_lights: u32 };
-
-pub const LightUniform = extern struct {
-    position: Vec3,
-    color: Vec4,
-    radius: f32,
+pub const CameraUniform2 = extern struct {
+    view: Mat4x4,
+    projection_view: Mat4x4,
 };
 
 pub const InstanceData = extern struct {
@@ -73,9 +70,15 @@ pub const InstanceData = extern struct {
     });
 };
 
-pub const max_lights = 10;
-pub const LightListUniform = extern struct {
-    ambient_color: Vec4,
-    lights: [max_lights]LightUniform,
-    len: u32,
+pub const Light = extern struct {
+    position: Vec3,
+    color: Vec4,
+    radius: f32,
 };
+
+pub const LightBuffer = extern struct {
+    len: u32,
+    lights: [10]Light,
+};
+
+pub const max_num_lights = 10;

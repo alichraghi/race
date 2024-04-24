@@ -3,7 +3,8 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const mach = @import("mach");
 const Camera = @import("Camera.zig");
-const Game = @import("Game.zig");
+const Renderer = @import("Renderer.zig");
+const Object = @import("Object.zig");
 const math = @import("math.zig");
 const shaders = @import("shaders.zig");
 const gpu = mach.gpu;
@@ -25,47 +26,26 @@ pub const local_events = .{
     .render = .{ .handler = render },
 };
 
-pipeline: *gpu.RenderPipeline,
-camera_uniform_buf: *gpu.Buffer,
-light_uniform_buf: *gpu.Buffer,
-light_uniform_stride: u32,
-bind_group: *gpu.BindGroup,
+pipeline: *gpu.RenderPipeline = undefined,
+bind_group: *gpu.BindGroup = undefined,
+camera_uniform_buf: *gpu.Buffer = undefined,
 show_points: bool = builtin.mode == .Debug,
 
-pub fn init(light: *Light, lights_capacity: u32) !void {
+// TODO: DON"T DEPENED ON OBJECT
+pub fn init(light: *Light, object: *Object) !void {
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
 
-    var limits = gpu.SupportedLimits{
-        // TODO(sysgpu)
-        .limits = .{
-            .min_uniform_buffer_offset_alignment = 256,
-        },
-    };
-    if (!build_options.use_sysgpu) {
-        _ = mach.core.device.getLimits(&limits);
-    }
-
     const camera_uniform_buf = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(shaders.CameraUniform),
-        .mapped_at_creation = .false,
-    });
-
-    const light_uniform_stride = math.ceilToNextMultiple(
-        @sizeOf(shaders.LightUniform),
-        limits.limits.min_uniform_buffer_offset_alignment,
-    );
-    const light_uniform_buf = mach.core.device.createBuffer(&.{
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = lights_capacity * light_uniform_stride,
+        .size = @sizeOf(shaders.CameraUniform2),
         .mapped_at_creation = .false,
     });
 
     const bind_group_layout = mach.core.device.createBindGroupLayout(
         &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
-            gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true }, .uniform, false, 0),
-            gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, true, 0),
+            gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true }, .uniform, false, @sizeOf(shaders.CameraUniform)),
+            gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, @sizeOf(shaders.LightBuffer)),
         } }),
     );
     defer bind_group_layout.release();
@@ -74,15 +54,8 @@ pub fn init(light: *Light, lights_capacity: u32) !void {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                // TODO(sysgpu)
-                if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform), 0)
-                else
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform)),
-                if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride, 0)
-                else
-                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
+                gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform)),
+                gpu.BindGroup.Entry.buffer(1, object.lights_buffer, 0, @sizeOf(shaders.LightBuffer)),
             },
         }),
     );
@@ -105,29 +78,19 @@ pub fn init(light: *Light, lights_capacity: u32) !void {
                         .dst_factor = .one_minus_src_alpha,
                     },
                 },
-                .write_mask = gpu.ColorWriteMaskFlags.all,
             }},
         }),
         .vertex = gpu.VertexState.init(.{
             .module = shader_module,
             .entry_point = "vertex_main",
-            .buffers = &.{},
         }),
-        .primitive = .{},
-        .depth_stencil = &.{
-            .format = .depth24_plus,
-            .depth_write_enabled = .true,
-            .depth_compare = .less,
-        },
     };
     const pipeline = mach.core.device.createRenderPipeline(&pipeline_descriptor);
 
     light.* = .{
         .pipeline = pipeline,
-        .camera_uniform_buf = camera_uniform_buf,
-        .light_uniform_buf = light_uniform_buf,
-        .light_uniform_stride = light_uniform_stride,
         .bind_group = bind_group,
+        .camera_uniform_buf = camera_uniform_buf,
     };
 }
 
@@ -135,50 +98,26 @@ pub fn deinit(light: *Mod) !void {
     const state = light.state();
 
     state.bind_group.release();
-    state.camera_uniform_buf.release();
-    state.light_uniform_buf.release();
 }
 
-pub fn render(light: *Mod, game: *Game.Mod, camera: Camera) !void {
-    _ = light;
-    _ = game;
-    _ = camera;
-    // const state = light.state();
-    // const game_state = game.state();
+pub fn render(light: *Mod, renderer: *Renderer.Mod, camera: Camera) !void {
+    const state: *Light = light.state();
+    const renderer_state: *Renderer = renderer.state();
 
-    // if (!state.show_points) return;
+    mach.core.queue.writeBuffer(state.camera_uniform_buf, 0, &[_]shaders.CameraUniform2{.{
+        .view = camera.view,
+        .projection_view = camera.projection.mul(&camera.view),
+    }});
 
-    // game_state.pass.setPipeline(state.pipeline);
+    if (!state.show_points) return;
 
-    // mach.core.queue.writeBuffer(
-    //     state.camera_uniform_buf,
-    //     0,
-    //     &[_]shaders.CameraUniform{.{
-    //         .projection = camera.projection,
-    //         .view = camera.view,
-    //     }},
-    // );
+    renderer_state.deferred_pass.setPipeline(state.pipeline);
+    renderer_state.deferred_pass.setBindGroup(0, state.bind_group, &.{});
+    // renderer_state.deferred_pass.draw(6, 1, 0, 0);
 
-    // var archetypes_iter = light.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
-    // while (archetypes_iter.next()) |archetype| {
-    //     for (
-    //         archetype.slice(.light, .position),
-    //         archetype.slice(.light, .color),
-    //         archetype.slice(.light, .radius),
-    //         0..,
-    //     ) |position, color, radius, i| {
-    //         const buffer_offset = @as(u32, @intCast(i)) * state.light_uniform_stride;
-    //         mach.core.queue.writeBuffer(
-    //             state.light_uniform_buf,
-    //             buffer_offset,
-    //             &[_]shaders.LightUniform{.{
-    //                 .position = position, // TODO: x is reverted!?
-    //                 .color = color,
-    //                 .radius = radius,
-    //             }},
-    //         );
-    //         game_state.pass.setBindGroup(0, state.bind_group, &.{buffer_offset});
-    //         game_state.pass.draw(6, 1, 0, 0);
-    //     }
-    // }
+    // TODO: LOOKS CURSED
+    var archetypes_iter = light.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
+    while (archetypes_iter.next()) |archetype| {
+        renderer_state.deferred_pass.draw(6, @intCast(archetype.slice(.light, .position).len), 0, 0);
+    }
 }

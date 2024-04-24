@@ -6,6 +6,7 @@ pub const use_sysgpu = build_options.use_sysgpu;
 
 pub const modules = .{
     mach.Core,
+    @import("Renderer.zig"),
     @import("Object.zig"),
     @import("Light.zig"),
     @import("Game.zig"),

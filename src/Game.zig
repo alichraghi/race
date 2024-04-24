@@ -2,6 +2,7 @@ const std = @import("std");
 const mach = @import("mach");
 const math = @import("math.zig");
 const Camera = @import("Camera.zig");
+const Renderer = @import("Renderer.zig");
 const Object = @import("Object.zig");
 const Light = @import("Light.zig");
 const Model = @import("Model.zig");
@@ -30,53 +31,48 @@ pub const Mod = mach.Mod(Game);
 pub const global_events = .{
     .init = .{ .handler = init },
     .tick = .{ .handler = tick },
+    .framebufferResize = .{ .handler = fn (mach.core.Size) void },
 };
 
 pub const local_events = .{
     .processEvents = .{ .handler = processEvents },
     .tickCamera = .{ .handler = tickCamera },
-    .beginRender = .{ .handler = beginRender },
-    .endRender = .{ .handler = endRender },
 };
 
-pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
+pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
     mach.core.setCursorMode(.disabled);
 
     // Init modules
-    object.init(undefined);
-    light.init(.{
-        .pipeline = undefined,
-        .camera_uniform_buf = undefined,
-        .light_uniform_buf = undefined,
-        .light_uniform_stride = undefined,
-        .bind_group = undefined,
-    });
+    renderer.init(.{});
+    object.init(.{});
+    light.init(.{});
+    try renderer.state().init();
     try object.state().init();
-    try light.state().init(10);
+    try light.state().init(object.state());
 
     // Objects
     const quad = try object.newEntity();
-    const quad_model = try Model.initFromFile("assets/quad.m3d");
+    const quad_model = try Model.initFromFile("assets/cube.m3d");
     try object.set(quad, .texture, null);
     try object.set(quad, .model, quad_model);
-    try object.set(quad, .transform, .{ .scale = vec3(3, 0.01, 3) });
+    try object.set(quad, .transform, .{ .scale = vec3(3, 0.0001, 3) });
 
-    const cube = try object.newEntity();
-    const cube_model = try Model.initFromFile("assets/cube.m3d");
-    try object.set(cube, .texture, null);
-    try object.set(cube, .model, cube_model);
-    try object.set(cube, .transform, .{ .scale = vec3(0.5, 0.5, 0.5) });
+    // const cube = try object.newEntity();
+    // const cube_model = try Model.initFromFile("assets/cube.m3d");
+    // try object.set(cube, .texture, null);
+    // try object.set(cube, .model, cube_model);
+    // try object.set(cube, .transform, .{ .scale = vec3(0.5, 0.5, 0.5) });
 
     const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile("assets/dragon.m3d");
+    const wrench_model = try Model.initFromFile("assets/torusknot.m3d");
     try object.set(wrench, .texture, null);
     try object.set(wrench, .model, wrench_model);
     try object.set(wrench, .instances, try mach.core.allocator.dupe(Object.Transform, &.{
-        .{
-            .translation = vec3(0, 0, 0),
-            .rotation = vec3(0, 0, 0),
-            .scale = vec3(0.5, 0.5, 0.5),
-        },
+        // .{
+        //     .translation = vec3(0, 0, 0),
+        //     .rotation = vec3(0, 0, 0),
+        //     .scale = vec3(0.5, 0.5, 0.5),
+        // },
         .{
             .translation = vec3(2, 0, 0),
             .rotation = vec3(0, 0, 0),
@@ -91,19 +87,19 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
 
     // Light
     const light_green = try light.newEntity();
-    try light.set(light_green, .position, vec3(0, 1.5, -0.5));
+    try light.set(light_green, .position, vec3(0, 0.5, -0.5));
     try light.set(light_green, .color, vec4(0, 1, 0, 1));
-    try light.set(light_green, .radius, 20);
+    try light.set(light_green, .radius, 5);
 
     const light_blue = try light.newEntity();
-    try light.set(light_blue, .position, vec3(2, 2.5, 0));
+    try light.set(light_blue, .position, vec3(2, 0.5, 0));
     try light.set(light_blue, .color, vec4(0.5, 0, 1, 1));
-    try light.set(light_blue, .radius, 20);
+    try light.set(light_blue, .radius, 5);
 
     const light_red = try light.newEntity();
-    try light.set(light_red, .position, vec3(5, 3.5, -0.5));
+    try light.set(light_red, .position, vec3(5, 0.5, -0.5));
     try light.set(light_red, .color, vec4(1, 0, 0, 1));
-    try light.set(light_red, .radius, 20);
+    try light.set(light_red, .radius, 5);
 
     // Camera
     const main_camera = Camera{};
@@ -131,21 +127,23 @@ pub fn deinit(game: *Mod, object: *Object.Mod) !void {
     state.depth_view.release();
 }
 
-pub fn tick(game: *Mod, object: *Object.Mod) !void {
+pub fn tick(game: *Mod, renderer: *Renderer.Mod, object: *Object.Mod, light: *Light.Mod) !void {
     const state: *Game = game.state();
 
     game.send(.processEvents, .{});
     game.send(.tickCamera, .{});
-    // game.send(.beginRender, .{});
+    renderer.send(.record, .{});
 
-    // rotate wrench
-    // var trans = object.get(state.wrench, .transforms).?[0];
-    // trans.rotation = trans.rotation.add(&vec3(0, 0.01, 0));
-    // try object.set(state.wrench, .transforms, mach trans);
+    renderer.send(.beginGBuffer, .{});
+    object.send(.renderGBuffer, .{state.main_camera});
+    renderer.send(.endGBuffer, .{});
 
-    object.send(.render, .{state.main_camera});
-    // light.send(.render, .{state.main_camera});
-    // game.send(.endRender, .{});
+    renderer.send(.beginDeferred, .{});
+    object.send(.render, .{});
+    light.send(.render, .{state.main_camera});
+    renderer.send(.endDeferred, .{});
+
+    renderer.send(.submit, .{});
 }
 
 pub fn tickCamera(game: *Mod) !void {
@@ -177,7 +175,7 @@ pub fn tickCamera(game: *Mod) !void {
     );
 }
 
-pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
+pub fn processEvents(game: *Mod, renderer: *Renderer.Mod, core: *Core.Mod) !void {
     const state: *Game = game.state();
 
     var iter = mach.core.pollEvents();
@@ -214,83 +212,14 @@ pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
                 state.camera_rot = state.camera_rot.add(&rotation.mulScalar(rot_speed));
                 state.camera_front = math.worldSpaceDirection(state.camera_rot);
             },
-            .framebuffer_resize => {
-                // state.depth_texture, state.depth_view = createDepthTexture();
+            .framebuffer_resize => |size| {
+                // renderer.state().depth_texture, renderer.state().depth_view = Renderer.createDepthTexture();
+                // TODO: for some reason, this produces weird results
+                _ = &renderer;
+                game.sendGlobal(.framebufferResize, .{size});
             },
             .close => core.send(.exit, .{}),
             else => {},
         }
     }
-}
-
-pub fn beginRender(game: *Mod, object: *Object.Mod) !void {
-    _ = game;
-    _ = object;
-    // const state: *Game = game.state();
-
-    // const back_buffer_view = mach.core.swap_chain.getCurrentTextureView().?;
-    // defer back_buffer_view.release();
-
-    // const pass_info = gpu.RenderPassDescriptor.init(.{
-    //     .color_attachments = &.{
-    //         .{
-    //             .view = object.state.gbuffer_texture.view,
-    //             .clearValue = .{ .r = 0, .g = 0, .b = 1, .a = 1 },
-    //             .load_op = .clear,
-    //             .store_op = .store,
-    //         },
-    //         .{
-    //             .view = object.state.gbuffer_texture_albedo.view,
-    //             .clearValue = .{ .r = 0, .g = 0, .b = 0, .a = 1 },
-    //             .load_op = .clear,
-    //             .store_op = .store,
-    //         },
-    //     },
-    //     .depth_stencil_attachment = &.{
-    //         .view = state.depth_view,
-    //         .depth_clear_value = 1.0,
-    //         .depth_load_op = .clear,
-    //         .depth_store_op = .store,
-    //     },
-    // });
-}
-
-pub fn endRender(game: *Mod) !void {
-    _ = game;
-    // const state: *Game = game.state();
-
-    // state.pass.end();
-    // state.pass.release();
-
-    // var command = state.encoder.finish(null);
-    // defer command.release();
-    // state.encoder.release();
-    // mach.core.queue.submit(&[_]*gpu.CommandBuffer{command});
-
-    // // Prepare for next pass
-    // state.encoder = mach.core.device.createCommandEncoder(&.{});
-    // mach.core.swap_chain.present();
-}
-
-pub fn createDepthTexture() struct { *gpu.Texture, *gpu.TextureView } {
-    const texture = mach.core.device.createTexture(&gpu.Texture.Descriptor{
-        .size = gpu.Extent3D{
-            .width = mach.core.descriptor.width,
-            .height = mach.core.descriptor.height,
-        },
-        .format = .depth24_plus,
-        .usage = .{
-            .render_attachment = true,
-            .texture_binding = true,
-        },
-    });
-
-    const view = texture.createView(&gpu.TextureView.Descriptor{
-        .format = .depth24_plus,
-        .dimension = .dimension_2d,
-        .array_layer_count = 1,
-        .mip_level_count = 1,
-    });
-
-    return .{ texture, view };
 }

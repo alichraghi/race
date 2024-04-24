@@ -45,25 +45,13 @@ fn frag_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
   let normal = textureLoad(gbuffer_normal, vec2<i32>(floor(coord.xy)), 0).xyz;
   let albedo = textureLoad(gbuffe_albedo, vec2<i32>(floor(coord.xy)), 0).rgb;
 
-    if (lights.len != 3) {
-      return vec4(1, 0,0, 1.0);
-    }
-
   var result: vec3<f32>;
   for (var i = 0u; i < lights.len; i++) {
     let L = lights.lights[i].position - position;
     let distance = length(L);
 
-    if (lights.lights[i].radius != 20) {
-      return vec4(0, 0,1, 1.0);
-    }
-
-    if (distance > lights.lights[i].radius) {
-      continue;
-    }
-
     let lambert = max(dot(normal, normalize(L)), 0.0);
-    result += vec3(lambert * pow(1.0 - distance / lights.lights[i].radius, 2.0) * lights.lights[i].color.xyz * lights.lights[i].color.w * albedo);
+    result += lambert * pow(1.0 - distance / lights.lights[i].radius, 2.0) * lights.lights[i].color.xyz * lights.lights[i].color.w * albedo;
   }
 
   // some manual ambient
