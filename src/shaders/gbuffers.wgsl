@@ -1,13 +1,16 @@
 struct Camera {
+  view: mat4x4<f32>,
   projection_view: mat4x4<f32>,
   inverse_projection_view: mat4x4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var texture: texture_2d<f32>;
+@group(0) @binding(2) var diffuse_sampler: sampler;
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
-  @location(0) normal: vec3<f32>,
+  @location(0) normal: vec4<f32>,
   @location(1) uv: vec2<f32>,
 }
 
@@ -27,11 +30,11 @@ fn vertex_main(
 ) -> VertexOutput {
   let model = mat4x4(model_0, model_1, model_2, model_3);
   let normal_model = mat4x4(normal_model_0, normal_model_1, normal_model_2, normal_model_3);
-  let world_position = (model * vec4(position, 1.0)).xyz;
+  let world_position = model * vec4(position, 1.0);
 
   var output : VertexOutput;
-  output.position = camera.projection_view * vec4(world_position, 1.0);
-  output.normal = normalize((normal_model * vec4(normal, 1.0)).xyz);
+  output.position = camera.projection_view * world_position;
+  output.normal = normal_model * vec4(normal, 1.0);
   output.uv = uv;
   return output;
 }
@@ -44,13 +47,8 @@ struct GBufferOutput {
 
 @fragment
 fn frag_main(in: VertexOutput) -> GBufferOutput {
-  // faking some kind of checkerboard texture
-  // let uv = floor(30.0 * in.uv);
-  // let c = 0.2 + 0.5 * ((uv.x + uv.y) - 2.0 * floor((uv.x + uv.y) / 2.0));
-
-  var output : GBufferOutput;
-  output.normal = vec4(normalize(in.normal), 1.0);
-  output.albedo = vec4(in.uv, 1.0, 1.0);
-
+  var output: GBufferOutput;
+  output.normal = normalize(in.normal);
+  output.albedo = textureSample(texture, diffuse_sampler, in.uv);
   return output;
 }

@@ -6,12 +6,13 @@ struct LightData {
 
 struct LightBuffer {
     len: u32,
-    lights: array<LightData, 10>,
+    lights: array<LightData, 128>,
 };
 
 struct Camera {
-  view_projection: mat4x4<f32>,
-  inverse_view_projection: mat4x4<f32>,
+  view: mat4x4<f32>,
+  projection_view: mat4x4<f32>,
+  inverse_projection_view: mat4x4<f32>,
 }
 
 @group(0) @binding(0) var gbuffer_normal: texture_2d<f32>;
@@ -24,7 +25,7 @@ struct Camera {
 fn worldFromScreenCoord(coord: vec2<f32>, depth_sample: f32) -> vec3<f32> {
   // reconstruct world-space position from the screen coordinate.
   let pos_clip = vec4(coord.x * 2.0 - 1.0, (1.0 - coord.y) * 2.0 - 1.0, depth_sample, 1.0);
-  let pos_world_w = camera.inverse_view_projection * pos_clip;
+  let pos_world_w = camera.inverse_projection_view * pos_clip;
   let pos_world = pos_world_w.xyz / pos_world_w.www;
   return pos_world;
 }
@@ -32,34 +33,35 @@ fn worldFromScreenCoord(coord: vec2<f32>, depth_sample: f32) -> vec3<f32> {
 @fragment
 fn frag_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
   let depth = textureLoad(gbuffer_depth, vec2<i32>(floor(coord.xy)), 0);
-
-  // Don't light the sky.
   if (depth >= 1.0) {
-    discard;
+    discard; // Don't light the sky.
   }
+
+  let albedo = textureLoad(gbuffe_albedo, vec2<i32>(floor(coord.xy)), 0).rgb;
+  let normal = textureLoad(gbuffer_normal, vec2<i32>(floor(coord.xy)), 0).rgb;
 
   let buffer_size = textureDimensions(gbuffer_depth);
   let coord_uv = coord.xy / vec2<f32>(buffer_size);
   let position = worldFromScreenCoord(coord_uv, depth);
-
-  let normal = textureLoad(gbuffer_normal, vec2<i32>(floor(coord.xy)), 0).xyz;
-  let albedo = textureLoad(gbuffe_albedo, vec2<i32>(floor(coord.xy)), 0).rgb;
+  let view_dir = normalize(position - coord.xyz);
 
   var result: vec3<f32>;
   for (var i = 0u; i < lights.len; i++) {
-    let L = lights.lights[i].position - position;
-    let distance = length(L);
-
-    let lambert = max(dot(normal, normalize(L)), 0.0);
-    result += lambert * pow(1.0 - distance / lights.lights[i].radius, 2.0) * lights.lights[i].color.xyz * lights.lights[i].color.w * albedo;
+    let light = lights.lights[i];
+    let light_dir = position - light.position;
+    let distance = length(light_dir);
+    if (distance < light.radius) {
+      let diffuse = max(dot(normal, normalize(light_dir)), 0);
+      let attenuation = light.radius / (distance * distance);
+      result += diffuse * albedo * light.color.xyz * light.color.w * attenuation;
+    }
   }
 
   // some manual ambient
-  result += vec3(0.2);
+  result += vec3(0.05);
 
   return vec4(result, 1.0);
 }
-
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4<f32> {

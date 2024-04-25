@@ -9,8 +9,8 @@
     },
     .dependencies = .{
         .mach = .{
-            .url = "https://github.com/hexops/mach/archive/7a1efdaa698d5004b663845031aa59ea8e08afa9.tar.gz",
-            .hash = "122066cea39a9780dbe03ae6f0df9aea81079c5d9b798e617a0d065dfd9491174466",
+            .url = "https://github.com/hexops/mach/archive/bffc66800584123e2844c4bc4b577940806f9088.tar.gz",
+            .hash = "122030ee1528db53d58385fad45929092308955e141b95185b375ea8cf616de6b141",
         },
         .mach_gpu_dawn = .{
             .url = "https://pkg.machengine.org/mach-gpu-dawn/cce4d19945ca6102162b0cbbc546648edb38dc41.tar.gz",
@@ -23,10 +23,6 @@
         .zigimg = .{
             .url = "https://github.com/slimsag/zigimg/archive/19a49a7e44fb4b1c22341dfbd6566019de742055.tar.gz",
             .hash = "1220ebfa8587cfd644995fc08e218dbb3ebd7344fb8e129ff02bc5a6d52a2325370d",
-        },
-        .ufbx = .{
-            .url = "https://github.com/ufbx/ufbx/archive/fa5a5811cf5ac37d407188c819c7b19b0028dd65.tar.gz",
-            .hash = "1220a4466488b77712e45f26a8ef3b37ca158a6e6cd4064e67de9c5f18a541a1c431",
         },
     },
 }

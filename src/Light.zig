@@ -28,24 +28,20 @@ pub const local_events = .{
 
 pipeline: *gpu.RenderPipeline = undefined,
 bind_group: *gpu.BindGroup = undefined,
-camera_uniform_buf: *gpu.Buffer = undefined,
-show_points: bool = builtin.mode == .Debug,
+// TODO: lights are always rendered over objects.
+//       figure out how to apply depth correctly,
+//       and change this to `builtin.mode == .Debug`
+show_points: bool = true,
 
-// TODO: DON"T DEPENED ON OBJECT
-pub fn init(light: *Light, object: *Object) !void {
+pub fn init(light: *Light, renderer: *Renderer) !void {
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
-
-    const camera_uniform_buf = mach.core.device.createBuffer(&.{
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(shaders.CameraUniform2),
-        .mapped_at_creation = .false,
-    });
 
     const bind_group_layout = mach.core.device.createBindGroupLayout(
         &gpu.BindGroupLayout.Descriptor.init(.{ .entries = &.{
             gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true }, .uniform, false, @sizeOf(shaders.CameraUniform)),
             gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, @sizeOf(shaders.LightBuffer)),
+            gpu.BindGroupLayout.Entry.texture(2, .{ .fragment = true }, .depth, .dimension_2d, false),
         } }),
     );
     defer bind_group_layout.release();
@@ -54,8 +50,9 @@ pub fn init(light: *Light, object: *Object) !void {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform)),
-                gpu.BindGroup.Entry.buffer(1, object.lights_buffer, 0, @sizeOf(shaders.LightBuffer)),
+                .{ .binding = 0, .buffer = renderer.camera_uniform, .size = @sizeOf(shaders.CameraUniform) },
+                .{ .binding = 1, .buffer = renderer.lights_buffer, .size = @sizeOf(shaders.LightBuffer) },
+                .{ .binding = 2, .texture_view = renderer.depth_view, .size = 0 },
             },
         }),
     );
@@ -87,11 +84,7 @@ pub fn init(light: *Light, object: *Object) !void {
     };
     const pipeline = mach.core.device.createRenderPipeline(&pipeline_descriptor);
 
-    light.* = .{
-        .pipeline = pipeline,
-        .bind_group = bind_group,
-        .camera_uniform_buf = camera_uniform_buf,
-    };
+    light.* = .{ .pipeline = pipeline, .bind_group = bind_group };
 }
 
 pub fn deinit(light: *Mod) !void {
@@ -100,24 +93,17 @@ pub fn deinit(light: *Mod) !void {
     state.bind_group.release();
 }
 
-pub fn render(light: *Mod, renderer: *Renderer.Mod, camera: Camera) !void {
+pub fn render(light: *Mod, renderer: *Renderer.Mod) !void {
     const state: *Light = light.state();
     const renderer_state: *Renderer = renderer.state();
 
-    mach.core.queue.writeBuffer(state.camera_uniform_buf, 0, &[_]shaders.CameraUniform2{.{
-        .view = camera.view,
-        .projection_view = camera.projection.mul(&camera.view),
-    }});
-
     if (!state.show_points) return;
 
-    renderer_state.deferred_pass.setPipeline(state.pipeline);
-    renderer_state.deferred_pass.setBindGroup(0, state.bind_group, &.{});
-    // renderer_state.deferred_pass.draw(6, 1, 0, 0);
+    renderer_state.quad_pass.setPipeline(state.pipeline);
+    renderer_state.quad_pass.setBindGroup(0, state.bind_group, &.{});
 
-    // TODO: LOOKS CURSED
+    var instances: u32 = 0;
     var archetypes_iter = light.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
-    while (archetypes_iter.next()) |archetype| {
-        renderer_state.deferred_pass.draw(6, @intCast(archetype.slice(.light, .position).len), 0, 0);
-    }
+    while (archetypes_iter.next()) |archetype| instances += @intCast(archetype.archetype.len);
+    renderer_state.quad_pass.draw(6, instances, 0, 0);
 }

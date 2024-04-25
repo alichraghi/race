@@ -6,6 +6,7 @@ const Renderer = @import("Renderer.zig");
 const Object = @import("Object.zig");
 const Light = @import("Light.zig");
 const Model = @import("Model.zig");
+const shaders = @import("shaders.zig");
 const Core = mach.Core;
 const gpu = mach.gpu;
 const Vec3 = math.Vec3;
@@ -15,11 +16,7 @@ const vec4 = math.vec4;
 const Game = @This();
 
 main_camera: Camera,
-wrench: mach.EntityID,
-quad: mach.EntityID,
-
 prev_mouse_pos: Vec3,
-
 camera_pos: Vec3,
 camera_rot: Vec3,
 camera_dir: Vec3,
@@ -31,6 +28,8 @@ pub const Mod = mach.Mod(Game);
 pub const global_events = .{
     .init = .{ .handler = init },
     .tick = .{ .handler = tick },
+    // We need to make sure renderer's framebuffer resize event is called before other
+    .rendererFramebufferResize = .{ .handler = fn (mach.core.Size) void },
     .framebufferResize = .{ .handler = fn (mach.core.Size) void },
 };
 
@@ -48,58 +47,74 @@ pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Li
     light.init(.{});
     try renderer.state().init();
     try object.state().init();
-    try light.state().init(object.state());
+    try light.state().init(renderer.state());
 
-    // Objects
-    const quad = try object.newEntity();
-    const quad_model = try Model.initFromFile("assets/cube.m3d");
-    try object.set(quad, .texture, null);
-    try object.set(quad, .model, quad_model);
-    try object.set(quad, .transform, .{ .scale = vec3(3, 0.0001, 3) });
+    var prng = std.Random.DefaultPrng.init(12385);
+    const random = prng.random();
+    for (0..random.intRangeAtMost(u32, 10, 100)) |_| {
+        // const models = &[_][]const u8{
+        //     "assets/cube.m3d",
+        //     "assets/dragon.m3d",
+        //     "assets/monkey.m3d",
+        //     "assets/torusknot.m3d",
+        //     "assets/wrench.obj",
+        //     "assets/sponza/Sponza.gltf",
+        // };
+        const kind = random.intRangeAtMost(u8, 0, 1);
+        switch (kind) {
+            0 => {
+                // const model_index = random.intRangeAtMost(u8, 0, models.len - 1);
+                // const obj = try object.newEntity();
+                // const obj_model = try Model.initFromFile(models[model_index]);
+                // const scale = @max(@min(random.float(f32), 1), 0.5);
+                // try object.set(obj, .model, obj_model);
+                // try object.set(obj, .transform, .{
+                //     .translation = vec3(
+                //         random.float(f32) * 10,
+                //         random.float(f32),
+                //         random.float(f32) * 10,
+                //     ),
+                //     .rotation = vec3(
+                //         random.float(f32) * math.pi / 2,
+                //         random.float(f32) * math.pi / 2,
+                //         random.float(f32) * math.pi / 2,
+                //     ),
+                //     .scale = vec3(scale, scale, scale),
+                // });
+            },
+            1 => {
+                const l = try light.newEntity();
+                try light.set(l, .position, vec3(
+                    random.float(f32),
+                    random.float(f32),
+                    random.float(f32),
+                ));
+                try light.set(l, .color, vec4(
+                    random.float(f32),
+                    random.float(f32),
+                    random.float(f32),
+                    1,
+                ));
+                try light.set(l, .radius, random.float(f32) * 10);
+            },
+            else => unreachable,
+        }
+    }
 
-    // const cube = try object.newEntity();
-    // const cube_model = try Model.initFromFile("assets/cube.m3d");
-    // try object.set(cube, .texture, null);
-    // try object.set(cube, .model, cube_model);
-    // try object.set(cube, .transform, .{ .scale = vec3(0.5, 0.5, 0.5) });
+    const obj2 = try object.newEntity();
+    const sponza_model = try Model.initFromFile("assets/samurai.m3d");
+    try object.set(obj2, .model, sponza_model);
+    try object.set(obj2, .transform, .{});
 
-    const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile("assets/torusknot.m3d");
-    try object.set(wrench, .texture, null);
-    try object.set(wrench, .model, wrench_model);
-    try object.set(wrench, .instances, try mach.core.allocator.dupe(Object.Transform, &.{
-        // .{
-        //     .translation = vec3(0, 0, 0),
-        //     .rotation = vec3(0, 0, 0),
-        //     .scale = vec3(0.5, 0.5, 0.5),
-        // },
-        .{
-            .translation = vec3(2, 0, 0),
-            .rotation = vec3(0, 0, 0),
-            .scale = vec3(0.75, 0.75, 0.75),
-        },
-        .{
-            .translation = vec3(5, 0, 0),
-            .rotation = vec3(0, 0, 0),
-            .scale = vec3(1, 1, 1),
-        },
-    }));
+    // const obj = try object.newEntity();
+    // const obj_model = try Model.initFromFile("assets/cube.m3d");
+    // try object.set(obj, .model, obj_model);
+    // try object.set(obj, .transform, .{ .scale = vec3(50, 0.01, 50) });
 
-    // Light
-    const light_green = try light.newEntity();
-    try light.set(light_green, .position, vec3(0, 0.5, -0.5));
-    try light.set(light_green, .color, vec4(0, 1, 0, 1));
-    try light.set(light_green, .radius, 5);
-
-    const light_blue = try light.newEntity();
-    try light.set(light_blue, .position, vec3(2, 0.5, 0));
-    try light.set(light_blue, .color, vec4(0.5, 0, 1, 1));
-    try light.set(light_blue, .radius, 5);
-
-    const light_red = try light.newEntity();
-    try light.set(light_red, .position, vec3(5, 0.5, -0.5));
-    try light.set(light_red, .color, vec4(1, 0, 0, 1));
-    try light.set(light_red, .radius, 5);
+    // const l = try light.newEntity();
+    // try light.set(l, .position, vec3(0, 0.5, 0.7));
+    // try light.set(l, .color, vec4(0, 1, 0, 1));
+    // try light.set(l, .radius, 5);
 
     // Camera
     const main_camera = Camera{};
@@ -109,8 +124,6 @@ pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Li
 
     game.init(.{
         .main_camera = main_camera,
-        .wrench = wrench,
-        .quad = quad,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
         .camera_pos = vec3(0, 0, -6),
         .camera_rot = camera_rot,
@@ -135,13 +148,15 @@ pub fn tick(game: *Mod, renderer: *Renderer.Mod, object: *Object.Mod, light: *Li
     renderer.send(.record, .{});
 
     renderer.send(.beginGBuffer, .{});
-    object.send(.renderGBuffer, .{state.main_camera});
+    renderer.send(.writeCamera, .{state.main_camera});
+    renderer.send(.writeLights, .{});
+    object.send(.renderGBuffer, .{});
     renderer.send(.endGBuffer, .{});
 
-    renderer.send(.beginDeferred, .{});
-    object.send(.render, .{});
-    light.send(.render, .{state.main_camera});
-    renderer.send(.endDeferred, .{});
+    renderer.send(.beginQuad, .{});
+    renderer.send(.renderQuad, .{});
+    light.send(.render, .{});
+    renderer.send(.endQuad, .{});
 
     renderer.send(.submit, .{});
 }
@@ -160,12 +175,7 @@ pub fn tickCamera(game: *Mod) !void {
     // Projection
     const w: f32 = @floatFromInt(mach.core.descriptor.width);
     const h: f32 = @floatFromInt(mach.core.descriptor.height);
-    state.main_camera.projection = Camera.perspective(
-        math.pi / 4.0, // 45deg
-        w / h,
-        0.1,
-        100,
-    );
+    state.main_camera.projection = Camera.perspective(math.pi / 4.0, w / h, 0.1, 100);
 
     // View
     state.main_camera.view = Camera.lookAt(
@@ -187,6 +197,16 @@ pub fn processEvents(game: *Mod, renderer: *Renderer.Mod, core: *Core.Mod) !void
                     .d => state.camera_dir.v[0] += 1,
                     .s => state.camera_dir.v[2] -= 1,
                     .a => state.camera_dir.v[0] -= 1,
+                    .left_bracket => {
+                        const current_mode = renderer.state().render_mode;
+                        const new_mode = blk: {
+                            if (@intFromEnum(current_mode) + 1 > shaders.RenderMode.max) {
+                                break :blk 0;
+                            }
+                            break :blk @intFromEnum(current_mode) + 1;
+                        };
+                        renderer.send(.writeRenderMode, .{@enumFromInt(new_mode)});
+                    },
                     .escape => mach.core.setCursorMode(.normal),
                     else => {},
                 }
@@ -213,9 +233,7 @@ pub fn processEvents(game: *Mod, renderer: *Renderer.Mod, core: *Core.Mod) !void
                 state.camera_front = math.worldSpaceDirection(state.camera_rot);
             },
             .framebuffer_resize => |size| {
-                // renderer.state().depth_texture, renderer.state().depth_view = Renderer.createDepthTexture();
-                // TODO: for some reason, this produces weird results
-                _ = &renderer;
+                game.sendGlobal(.rendererFramebufferResize, .{size});
                 game.sendGlobal(.framebufferResize, .{size});
             },
             .close => core.send(.exit, .{}),

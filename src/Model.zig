@@ -2,10 +2,12 @@ const std = @import("std");
 const mach = @import("mach");
 const M3d = @import("model3d");
 const wavefront = @import("wavefront.zig");
-const c = @cImport(@cInclude("ufbx.h"));
 const math = @import("math.zig");
+const Texture = @import("Texture.zig");
+const shaders = @import("shaders.zig");
 const core = mach.core;
 const gpu = mach.gpu;
+const Vec4 = math.Vec4;
 const Vec3 = math.Vec3;
 const Vec2 = math.Vec2;
 const vec2 = math.vec2;
@@ -13,41 +15,42 @@ const vec3 = math.vec3;
 
 const Model = @This();
 
-vertex_buf: *gpu.Buffer,
-vertex_count: u32,
+pub const Mesh = struct {
+    material: u32,
+    vertex_buf: *gpu.Buffer,
+    index_buf: ?*gpu.Buffer,
+    vertex_count: u32,
+    index_count: u32,
+};
 
-index_buf: ?*gpu.Buffer,
-index_count: u32,
+pub const Material = struct {
+    texture: Texture,
+};
 
-pub fn init(vertices: []const Vertex, indices: ?[]const u32) Model {
-    const vertex_buf = core.device.createBuffer(&.{
-        .usage = .{ .vertex = true },
-        .size = @sizeOf(Vertex) * vertices.len,
-        .mapped_at_creation = .true,
-    });
-    const vertex_mapped = vertex_buf.getMappedRange(Vertex, 0, vertices.len);
-    @memcpy(vertex_mapped.?, vertices[0..]);
-    vertex_buf.unmap();
+meshes: []Mesh,
+materials: []Material,
 
-    const index_buf, const index_count: u32 = if (indices) |_| blk: {
-        const index_buf = core.device.createBuffer(&.{
-            .usage = .{ .index = true },
-            .size = @sizeOf(u32) * indices.?.len,
-            .mapped_at_creation = .true,
-        });
-        const index_mapped = index_buf.getMappedRange(u32, 0, indices.?.len);
-        @memcpy(index_mapped.?, indices.?[0..]);
-        index_buf.unmap();
-        break :blk .{ index_buf, @intCast(indices.?.len) };
-    } else .{ null, 0 };
+// fn createMesh(vertices: []const shaders.Vertex, indices: ?[]const u32, material: u32) Mesh {
+//     // const index_buf, const index_count: u32 = if (indices) |_| blk: {
+//     //     const index_buf = core.device.createBuffer(&.{
+//     //         .usage = .{ .index = true },
+//     //         .size = @sizeOf(u32) * indices.?.len,
+//     //         .mapped_at_creation = .true,
+//     //     });
+//     //     const index_mapped = index_buf.getMappedRange(u32, 0, indices.?.len);
+//     //     @memcpy(index_mapped.?, indices.?[0..]);
+//     //     index_buf.unmap();
+//     //     break :blk .{ index_buf, @intCast(indices.?.len) };
+//     // } else .{ null, 0 };
 
-    return .{
-        .vertex_buf = vertex_buf,
-        .vertex_count = @intCast(vertices.len),
-        .index_buf = index_buf,
-        .index_count = index_count,
-    };
-}
+//     return .{
+//         .material = material,
+//         .vertex_buf = vertex_buf,
+//         .vertex_count = @intCast(vertices.len),
+//         .index_buf = index_buf,
+//         .index_count = index_count,
+//     };
+// }
 
 pub fn initFromFile(path: []const u8) !Model {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -58,224 +61,209 @@ pub fn initFromFile(path: []const u8) !Model {
     const ext = std.fs.path.extension(path);
     if (std.mem.eql(u8, ext, ".m3d")) {
         return initFromM3D(data);
-    } else if (std.mem.eql(u8, ext, ".obj")) {
-        return initFromWavefront(data);
-    } else if (std.mem.eql(u8, ext, ".fbx")) {
-        return initFromFBX(data);
     }
 
     return error.UnknownFormat;
 }
 
-pub fn initFromWavefront(data: []const u8) !Model {
-    var fbs = std.io.fixedBufferStream(data);
-    var model = try wavefront.load(core.allocator, fbs.reader());
-    defer model.deinit();
+const M3D_UNDEF: u32 = 0xffffffff; // TODO
 
-    var vertices = std.ArrayList(Vertex).init(core.allocator);
-    defer vertices.deinit();
-
-    var indices = std.ArrayList(u32).init(core.allocator);
-    defer indices.deinit();
-
-    for (model.faces) |face| {
-        std.debug.assert(face.vertices.len == 3);
-
-        for (face.vertices) |src_vtx| {
-            const position = model.positions[src_vtx.position];
-            const normal = if (src_vtx.normal) |i| model.normals[i] else vec3(0, 0, 0);
-            const uv = if (src_vtx.uv) |i| model.uvs[i] else vec3(0, 0, 0);
-            const dst_vertex = Vertex{
-                .position = vec3(position.x(), position.y(), position.z()),
-                .normal = normal,
-                .uv = vec2(uv.x(), uv.y()),
-            };
-            const index: u32 = @intCast(vertices.items.len);
-            try vertices.append(dst_vertex);
-            try indices.append(index);
-        }
-    }
-
-    return init(vertices.items, indices.items);
-}
-
-pub fn initFromFBX(data: []const u8) !Model {
-    var err: c.ufbx_error = .{};
-    const opts = c.ufbx_load_opts{
-        .target_axes = .{
-            .right = c.UFBX_COORDINATE_AXIS_NEGATIVE_X,
-            .up = c.UFBX_COORDINATE_AXIS_POSITIVE_Y,
-            .front = c.UFBX_COORDINATE_AXIS_POSITIVE_Z,
-        },
-    };
-    const scene = c.ufbx_load_memory(data.ptr, data.len, &opts, &err);
-    if (err.type != c.UFBX_ERROR_NONE) return error.LoadingModel;
-    defer c.ufbx_free_scene(scene);
-
-    // We only support one mesh per file
-    const meshes = scene.*.unnamed_0.unnamed_0.meshes;
-    const mesh = meshes.data[0..meshes.count][0];
-
-    // Count the number of needed parts and temporary buffers
-    var max_parts: usize = 0;
-    var max_triangles: usize = 0;
-
-    // We need to render each material of the mesh in a separate part, so let's
-    // count the number of parts and maximum number of triangles needed.
-    for (mesh.*.material_parts.data[0..mesh.*.material_parts.count]) |part| {
-        if (part.num_triangles == 0) continue;
-        max_parts += 1;
-        max_triangles = @max(max_triangles, part.num_triangles);
-    }
-
-    const tri_indices = try core.allocator.alloc(u32, mesh.*.max_face_triangles * 3);
-    defer core.allocator.free(tri_indices);
-    const vertices = try core.allocator.alloc(Vertex, max_triangles * 3);
-    defer core.allocator.free(vertices);
-    const indices = try core.allocator.alloc(u32, max_triangles * 3);
-    defer core.allocator.free(indices);
-
-    var num_indices: u32 = 0;
-    for (mesh.*.faces.data[0..mesh.*.faces.count]) |face| {
-        const num_tris = c.ufbx_triangulate_face(tri_indices.ptr, tri_indices.len, mesh, face);
-
-        for (0..num_tris * 3) |vi| {
-            const ix = tri_indices[vi];
-
-            const pos = c.ufbx_get_vertex_vec3(&mesh.*.vertex_position, ix);
-            const normal = c.ufbx_get_vertex_vec3(&mesh.*.vertex_normal, ix);
-            const uv = if (mesh.*.vertex_uv.exists) c.ufbx_get_vertex_vec2(&mesh.*.vertex_uv, ix) else c.ufbx_vec2{};
-
-            vertices[num_indices] = .{
-                .position = vec3(
-                    @floatCast(pos.unnamed_0.unnamed_0.x),
-                    @floatCast(pos.unnamed_0.unnamed_0.y),
-                    @floatCast(pos.unnamed_0.unnamed_0.z),
-                ),
-                .normal = vec3(
-                    @floatCast(normal.unnamed_0.unnamed_0.x),
-                    @floatCast(normal.unnamed_0.unnamed_0.y),
-                    @floatCast(normal.unnamed_0.unnamed_0.z),
-                ),
-                .uv = vec2(
-                    @floatCast(uv.unnamed_0.unnamed_0.x),
-                    @floatCast(uv.unnamed_0.unnamed_0.y),
-                ),
-            };
-
-            num_indices += 1;
-        }
-    }
-
-    var streams: [1]c.ufbx_vertex_stream = .{.{
-        .data = vertices.ptr,
-        .vertex_count = num_indices,
-        .vertex_size = @sizeOf(Vertex),
-    }};
-
-    const num_vertices = c.ufbx_generate_indices(&streams, streams.len, indices.ptr, num_indices, null, &err);
-    if (err.type != c.UFBX_ERROR_NONE) {
-        return error.LoadingModel;
-    }
-
-    return init(vertices[0..num_vertices], indices[0..num_indices]);
-}
+const m3dp_Kd: c_int = 0;
+const m3dp_Ks: c_int = 2;
+const m3dp_Ns: c_int = 3;
+const m3dp_Ke: c_int = 4;
+const m3dp_Pr: c_int = 64;
+const m3dp_Pm: c_int = 65;
+const m3dp_Ps: c_int = 66;
+const m3dp_map_Kd: c_int = 128;
 
 pub fn initFromM3D(data: [:0]const u8) !Model {
-    const m3d_model = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
+    const m3d = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
+    defer m3d.deinit();
 
-    const vertex_count = m3d_model.handle.numvertex;
-    const face_count = m3d_model.handle.numface;
-    const index_count = face_count * 3;
-    const vertices = m3d_model.handle.vertex[0..vertex_count];
+    const mesh_count = @max(m3d.handle.nummaterial, 1);
 
-    var vertex_writer = try mach.gfx.util.VertexWriter(Vertex, u32).init(
-        core.allocator,
-        @intCast(index_count),
-        @intCast(vertex_count),
-        @intCast(face_count * 3),
-    );
-    defer vertex_writer.deinit(core.allocator);
+    var model: Model = .{
+        .meshes = try core.allocator.alloc(Mesh, mesh_count),
+        .materials = try core.allocator.alloc(Material, mesh_count),
+    };
 
-    var extent_min = Vec2.splat(std.math.floatMax(f32));
-    var extent_max = Vec2.splat(std.math.floatMin(f32));
+    var l: u32 = 0;
+    var k: i32 = -1;
+    var mi: i32 = -2;
+    for (m3d.handle.face[0..m3d.handle.numface]) |face| {
+        if (mi != face.materialid) {
+            std.debug.assert(k < mesh_count);
+            k += 1;
 
-    for (0..face_count) |i| {
-        const face = m3d_model.handle.face[i];
-        for (0..3) |x| {
-            const vertex_index = face.vertex[x];
-            const normal_index = face.normal[x];
-            const position = vec3(
-                vertices[vertex_index].x,
-                vertices[vertex_index].y,
-                vertices[vertex_index].z,
-            );
-            extent_min = vec2(
-                @min(position.x(), extent_min.x()),
-                @min(position.y(), extent_min.y()),
-            );
-            extent_max = vec2(
-                @max(position.x(), extent_max.x()),
-                @max(position.y(), extent_max.y()),
-            );
+            mi = @intCast(face.materialid);
 
-            const vertex = Vertex{
-                .position = position,
-                .normal = vec3(
-                    vertices[normal_index].x,
-                    vertices[normal_index].y,
-                    vertices[normal_index].z,
-                ),
-                .uv = vec2(position.x(), position.y()),
+            l = 0;
+            for (0..m3d.handle.numface) |_| {
+                if (mi != face.materialid) break;
+                l += 1;
+            }
+
+            const material = m3d.materials()[@intCast(mi)];
+            for (material.prop[0..material.numprop]) |prop| {
+                switch (prop.type) {
+                    m3dp_Kd => {
+                        // memcpy(&model.materials[i + 1].maps[MATERIAL_MAP_DIFFUSE].color, &prop.value.color, 4);
+                        // model.materials[i + 1].maps[MATERIAL_MAP_DIFFUSE].value = 0.0f;
+                    },
+                    m3dp_Ks => {
+                        // memcpy(&model.materials[i + 1].maps[MATERIAL_MAP_SPECULAR].color, &prop.value.color, 4);
+                    },
+                    m3dp_Ns => {
+                        // model.materials[i + 1].maps[MATERIAL_MAP_SPECULAR].value = prop.value.fnum;
+                    },
+                    m3dp_Ke => {
+                        // memcpy(&model.materials[i + 1].maps[MATERIAL_MAP_EMISSION].color, &prop.value.color, 4);
+                        // model.materials[i + 1].maps[MATERIAL_MAP_EMISSION].value = 0.0f;
+                    },
+                    m3dp_Pm => {
+                        // model.materials[i + 1].maps[MATERIAL_MAP_METALNESS].value = prop.value.fnum;
+                    },
+                    m3dp_Pr => {
+                        // model.materials[i + 1].maps[MATERIAL_MAP_ROUGHNESS].value = prop.value.fnum;
+                    },
+                    m3dp_Ps => {
+                        // model.materials[i + 1].maps[MATERIAL_MAP_NORMAL].color = WHITE;
+                        // model.materials[i + 1].maps[MATERIAL_MAP_NORMAL].value = prop.value.fnum;
+                    },
+                    m3dp_map_Kd => {
+                        const texture = m3d.textures()[prop.value.textureid];
+                        // TODO: grayscale texture
+                        if (texture.f != 1) {
+                            const size = @as(u32, @intCast(texture.w)) * texture.h * texture.f;
+                            model.materials[@intCast(mi)] = .{
+                                .texture = try Texture.init(
+                                    texture.w,
+                                    texture.h,
+                                    switch (texture.f) {
+                                        4 => .rgba,
+                                        3 => .rgb,
+                                        else => unreachable,
+                                    },
+                                    texture.d[0..size],
+                                ),
+                            };
+                        } else {
+                            // TODO: cache this
+                            model.materials[@intCast(mi)] = .{
+                                .texture = Texture.initFromFile("assets/missing.png") catch unreachable,
+                            };
+                        }
+                    },
+                    else => {
+                        if (prop.type >= 128) {
+                            // const texture = m3d.textures()[prop.value.textureid];
+                            // model.materials[i] = .{
+                            //     .texture = try Texture.init(
+                            //         texture.w,
+                            //         texture.h,
+                            //         switch (texture.f) {
+                            //             4 => .rgba,
+                            //             3 => .rgb,
+                            //             else => std.debug.panic("\n{}, {}, {}\n", .{ texture.w, texture.h, texture.f }),
+                            //         },
+                            //         texture.d[0 .. texture.w * texture.h * texture.f],
+                            //     ),
+                            // };
+
+                            // switch (prop.type)
+                            // {
+                            //     case m3dp_map_Kd: model.materials[i + 1].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTextureFromImage(image); break;
+                            //     case m3dp_map_Ks: model.materials[i + 1].maps[MATERIAL_MAP_SPECULAR].texture = LoadTextureFromImage(image); break;
+                            //     case m3dp_map_Ke: model.materials[i + 1].maps[MATERIAL_MAP_EMISSION].texture = LoadTextureFromImage(image); break;
+                            //     case m3dp_map_Km: model.materials[i + 1].maps[MATERIAL_MAP_NORMAL].texture = LoadTextureFromImage(image); break;
+                            //     case m3dp_map_Ka: model.materials[i + 1].maps[MATERIAL_MAP_OCCLUSION].texture = LoadTextureFromImage(image); break;
+                            //     case m3dp_map_Pm: model.materials[i + 1].maps[MATERIAL_MAP_ROUGHNESS].texture = LoadTextureFromImage(image); break;
+                            //     default: break;
+                            // }
+                        }
+                    },
+                }
+            }
+
+            const vertex_count = l * 3;
+            model.meshes[@intCast(k)] = .{
+                .material = @intCast(mi),
+                .vertex_buf = core.device.createBuffer(&.{
+                    .usage = .{ .vertex = true },
+                    .size = @sizeOf(shaders.Vertex) * vertex_count,
+                    .mapped_at_creation = .true,
+                }),
+                .index_buf = null,
+                .vertex_count = vertex_count,
+                .index_count = 0,
             };
-            vertex_writer.put(vertex, vertex_index);
+            l = 0;
         }
+
+        // Process meshes per material, add triangles
+
+        const vertex = model.meshes[@intCast(k)].vertex_buf.getMappedRange(shaders.Vertex, @sizeOf(shaders.Vertex) * l * 3, 3).?;
+        vertex[0].position = vec3(
+            m3d.handle.vertex[face.vertex[0]].x,
+            m3d.handle.vertex[face.vertex[0]].y,
+            m3d.handle.vertex[face.vertex[0]].z,
+        ).mulScalar(m3d.scale());
+        vertex[1].position = vec3(
+            m3d.handle.vertex[face.vertex[1]].x,
+            m3d.handle.vertex[face.vertex[1]].y,
+            m3d.handle.vertex[face.vertex[1]].z,
+        ).mulScalar(m3d.scale());
+        vertex[2].position = vec3(
+            m3d.handle.vertex[face.vertex[2]].x,
+            m3d.handle.vertex[face.vertex[2]].y,
+            m3d.handle.vertex[face.vertex[2]].z,
+        ).mulScalar(m3d.scale());
+
+        if (face.texcoord[0] != M3D_UNDEF) {
+            for (0..3) |i| {
+                if (m3d.handle.tmap != null and face.texcoord[i] < m3d.handle.numtmap) {
+                    vertex[i].uv = vec2(m3d.handle.tmap[face.texcoord[i]].u, 1 - m3d.handle.tmap[face.texcoord[i]].v);
+                } else {
+                    vertex[i].uv = vec2(0, 0);
+                }
+            }
+        }
+
+        if (face.normal[0] != M3D_UNDEF) {
+            vertex[0].normal = vec3(m3d.handle.vertex[face.normal[0]].x, m3d.handle.vertex[face.normal[0]].y, m3d.handle.vertex[face.normal[0]].z);
+            vertex[1].normal = vec3(m3d.handle.vertex[face.normal[0]].x, m3d.handle.vertex[face.normal[0]].y, m3d.handle.vertex[face.normal[0]].z);
+            vertex[2].normal = vec3(m3d.handle.vertex[face.normal[0]].x, m3d.handle.vertex[face.normal[0]].y, m3d.handle.vertex[face.normal[0]].z);
+        }
+
+        l += 1;
     }
 
-    const vertex_buffer = vertex_writer.vertices[0..vertex_writer.next_packed_index];
-    const index_buffer = vertex_writer.indices;
+    // Load materials
+    // for (m3d.materials(), 0..) |material, i| {
 
-    for (vertex_buffer) |*vertex| {
-        vertex.uv = vertex.uv.sub(&extent_min).div(&extent_max.sub(&extent_min));
+    // }
+
+    for (model.meshes) |mesh| {
+        mesh.vertex_buf.unmap();
+        if (mesh.index_buf) |index_buf| index_buf.unmap();
     }
 
-    return init(vertex_buffer, index_buffer);
+    return model;
 }
 
 pub fn deinit(model: Model) void {
-    model.vertex_buf.release();
-    if (model.index_buf) |index_buf| {
-        index_buf.release();
+    for (model.meshes) |mesh| {
+        mesh.vertex_buf.release();
+        if (mesh.index_buf) |index_buf| {
+            index_buf.release();
+        }
     }
+
+    for (model.materials) |material| {
+        material.texture.release();
+    }
+
+    core.allocator.free(model.meshes);
+    core.allocator.free(model.materials);
 }
-
-// TODO: move to shaders.zig
-pub const Vertex = struct {
-    position: Vec3,
-    normal: Vec3 = vec3(0, 0, 0), // TODO
-    uv: Vec2 = vec2(0, 0), // TODO
-
-    pub const attributes = [_]gpu.VertexAttribute{
-        .{
-            .format = .float32x3,
-            .offset = @offsetOf(Vertex, "position"),
-            .shader_location = 0,
-        },
-        .{
-            .format = .float32x3,
-            .offset = @offsetOf(Vertex, "normal"),
-            .shader_location = 1,
-        },
-        .{
-            .format = .float32x2,
-            .offset = @offsetOf(Vertex, "uv"),
-            .shader_location = 2,
-        },
-    };
-
-    pub const layout = gpu.VertexBufferLayout.init(.{
-        .array_stride = @sizeOf(Vertex),
-        .step_mode = .vertex,
-        .attributes = &attributes,
-    });
-};

@@ -3,6 +3,7 @@ const mach = @import("mach");
 const build_options = @import("build_options");
 
 pub const use_sysgpu = build_options.use_sysgpu;
+pub const SYSGPUInterface = mach.sysgpu.Impl;
 
 pub const modules = .{
     mach.Core,

@@ -6,16 +6,18 @@ struct LightData {
 
 struct LightBuffer {
     len: u32,
-    lights: array<LightData, 10>,
+    lights: array<LightData, 128>,
 };
 
 struct Camera {
   view: mat4x4<f32>,
   projection_view: mat4x4<f32>,
+  inverse_projection_view: mat4x4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> lights: LightBuffer;
+@group(0) @binding(2) var gbuffer_depth: texture_depth_2d;
 
 struct Output {
     @builtin(position) position: vec4<f32>,
@@ -56,6 +58,13 @@ const pi = 3.1415926538;
 
 @fragment
 fn frag_main(in: Output) -> @location(0) vec4<f32> {
+    let depth = textureLoad(gbuffer_depth, vec2<i32>(floor(in.position.xy)), 0);
+
+    // TODO: why this doesn't work?
+    // if (depth >= 1) {
+    //   discard;
+    // }
+
     let dis = sqrt(dot(in.offset, in.offset));
     if (dis >= 1.0) {
       discard;

@@ -5,6 +5,7 @@ const Camera = @import("Camera.zig");
 const Object = @import("Object.zig");
 const Light = @import("Light.zig");
 const Model = @import("Model.zig");
+const shaders = @import("shaders.zig");
 const Core = mach.Core;
 const gpu = mach.gpu;
 const Vec3 = math.Vec3;
@@ -13,9 +14,21 @@ const vec4 = math.vec4;
 
 const Renderer = @This();
 
-encoder: *gpu.CommandEncoder = undefined,
-gbuffer_pass: *gpu.RenderPassEncoder = undefined,
-deferred_pass: *gpu.RenderPassEncoder = undefined,
+render_mode: shaders.RenderMode = .render,
+
+quad_shader: *gpu.ShaderModule = undefined,
+quad_debug_shader: *gpu.ShaderModule = undefined,
+
+bind_group_0: *gpu.BindGroup = undefined,
+bind_group_1: *gpu.BindGroup = undefined,
+quad_pipeline: *gpu.RenderPipeline = undefined,
+
+bind_group_1_debug: *gpu.BindGroup = undefined,
+quad_debug_pipeline: *gpu.RenderPipeline = undefined,
+
+camera_uniform: *gpu.Buffer = undefined,
+lights_buffer: *gpu.Buffer = undefined,
+render_mode_uniform: *gpu.Buffer = undefined,
 
 depth_texture: *gpu.Texture = undefined,
 gbuffer_texture: *gpu.Texture = undefined,
@@ -26,24 +39,52 @@ depth_view: *gpu.TextureView = undefined,
 gbuffer_texture_view: *gpu.TextureView = undefined,
 gbuffer_texture_albedo_view: *gpu.TextureView = undefined,
 
+encoder: *gpu.CommandEncoder = undefined,
+gbuffer_pass: *gpu.RenderPassEncoder = undefined,
+quad_pass: *gpu.RenderPassEncoder = undefined,
+
 pub const name = .renderer;
 pub const Mod = mach.Mod(Renderer);
 
 pub const global_events = .{
-    .framebufferResize = .{ .handler = framebufferResize },
+    .rendererFramebufferResize = .{ .handler = rendererFramebufferResize },
 };
 
 pub const local_events = .{
     .record = .{ .handler = record },
+    .writeCamera = .{ .handler = writeCamera },
+    .writeLights = .{ .handler = writeLights },
+    .writeRenderMode = .{ .handler = writeRenderMode },
     .beginGBuffer = .{ .handler = beginGBuffer },
     .endGBuffer = .{ .handler = endGBuffer },
-    .beginDeferred = .{ .handler = beginDeferred },
-    .endDeferred = .{ .handler = endDeferred },
+    .beginQuad = .{ .handler = beginQuad },
+    .renderQuad = .{ .handler = renderQuad },
+    .endQuad = .{ .handler = endQuad },
     .submit = .{ .handler = submit },
 };
 
 pub fn init(state: *Renderer) !void {
-    state.createDepthTexture(.{ .width = mach.core.descriptor.width, .height = mach.core.descriptor.height });
+    state.quad_shader = mach.core.device.createShaderModuleWGSL("quad", @embedFile("shaders/quad.wgsl"));
+    state.quad_debug_shader = mach.core.device.createShaderModuleWGSL("quad_debug", @embedFile("shaders/quad_debug.wgsl"));
+
+    state.camera_uniform = mach.core.device.createBuffer(&.{
+        .usage = .{ .uniform = true, .copy_dst = true },
+        .size = @sizeOf(shaders.CameraUniform),
+        .mapped_at_creation = .false,
+    });
+    state.lights_buffer = mach.core.device.createBuffer(&.{
+        .usage = .{ .uniform = true, .copy_dst = true },
+        .size = @sizeOf(shaders.LightBuffer),
+        .mapped_at_creation = .false,
+    });
+    state.render_mode_uniform = mach.core.device.createBuffer(&.{
+        .usage = .{ .uniform = true, .copy_dst = true },
+        .size = @sizeOf(shaders.RenderMode),
+        .mapped_at_creation = .false,
+    });
+
+    state.createTextures(.{ .width = mach.core.descriptor.width, .height = mach.core.descriptor.height });
+    state.createQuadRenderPipeline();
 }
 
 pub fn deinit(renderer: *Mod) !void {
@@ -72,7 +113,7 @@ pub fn beginGBuffer(renderer: *Mod) void {
             },
             .{
                 .view = state.gbuffer_texture_albedo_view,
-                .clear_value = .{ .r = 0, .g = 0.6, .b = 0, .a = 1 },
+                .clear_value = .{ .r = 0.5, .g = 0.5, .b = 0.5, .a = 1 },
                 .load_op = .clear,
                 .store_op = .store,
             },
@@ -93,15 +134,15 @@ pub fn endGBuffer(renderer: *Mod) void {
     state.gbuffer_pass.release();
 }
 
-pub fn beginDeferred(renderer: *Mod) void {
+pub fn beginQuad(renderer: *Mod) void {
     const state: *Renderer = renderer.state();
 
     state.back_view = mach.core.swap_chain.getCurrentTextureView().?;
-    state.deferred_pass = state.encoder.beginRenderPass(
+    state.quad_pass = state.encoder.beginRenderPass(
         &gpu.RenderPassDescriptor.init(.{
             .color_attachments = &.{.{
                 .view = state.back_view,
-                .clear_value = .{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1 },
+                .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 1 },
                 .load_op = .clear,
                 .store_op = .store,
             }},
@@ -109,12 +150,74 @@ pub fn beginDeferred(renderer: *Mod) void {
     );
 }
 
-pub fn endDeferred(renderer: *Mod) void {
+pub fn renderQuad(renderer: *Mod) !void {
     const state: *Renderer = renderer.state();
 
-    state.deferred_pass.end();
-    state.deferred_pass.release();
+    state.quad_pass.setBindGroup(0, state.bind_group_0, null);
+    if (state.render_mode == .render) {
+        state.quad_pass.setPipeline(state.quad_pipeline);
+        state.quad_pass.setBindGroup(1, state.bind_group_1, null);
+    } else {
+        state.quad_pass.setPipeline(state.quad_debug_pipeline);
+        state.quad_pass.setBindGroup(1, state.bind_group_1_debug, null);
+    }
+    state.quad_pass.draw(6, 1, 0, 0);
+}
+
+pub fn endQuad(renderer: *Mod) void {
+    const state: *Renderer = renderer.state();
+
+    state.quad_pass.end();
+    state.quad_pass.release();
     state.back_view.release();
+}
+
+pub fn writeCamera(renderer: *Mod, camera: Camera) !void {
+    const state: *Renderer = renderer.state();
+
+    mach.core.queue.writeBuffer(
+        state.camera_uniform,
+        0,
+        &[_]shaders.CameraUniform{.{
+            .view = camera.view,
+            .projection_view = camera.projection.mul(&camera.view),
+            .inverse_projection_view = math.invert(camera.projection.mul(&camera.view)).transpose(),
+        }},
+    );
+}
+
+pub fn writeLights(renderer: *Mod) !void {
+    const state: *Renderer = renderer.state();
+
+    var lights = std.BoundedArray(shaders.Light, shaders.max_num_lights){};
+    var archetypes_iter = renderer.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
+    while (archetypes_iter.next()) |archetype| for (
+        archetype.slice(.light, .position),
+        archetype.slice(.light, .color),
+        archetype.slice(.light, .radius),
+    ) |position, color, radius| {
+        try lights.append(.{
+            .position = position,
+            .color = color,
+            .radius = radius,
+        });
+    };
+
+    mach.core.queue.writeBuffer(
+        state.lights_buffer,
+        0,
+        &[_]shaders.LightBuffer{.{
+            .len = lights.len,
+            .lights = lights.buffer,
+        }},
+    );
+}
+
+pub fn writeRenderMode(renderer: *Mod, mode: shaders.RenderMode) !void {
+    const state: *Renderer = renderer.state();
+
+    state.render_mode = mode;
+    mach.core.queue.writeBuffer(state.render_mode_uniform, 0, &[_]shaders.RenderMode{mode});
 }
 
 pub fn submit(renderer: *Mod) !void {
@@ -128,7 +231,7 @@ pub fn submit(renderer: *Mod) !void {
     mach.core.swap_chain.present();
 }
 
-pub fn framebufferResize(renderer: *Mod, size: mach.core.Size) void {
+pub fn rendererFramebufferResize(renderer: *Mod, size: mach.core.Size) void {
     const state: *Renderer = renderer.state();
 
     state.depth_texture.release();
@@ -137,10 +240,128 @@ pub fn framebufferResize(renderer: *Mod, size: mach.core.Size) void {
     state.gbuffer_texture_view.release();
     state.gbuffer_texture_albedo_view.release();
 
-    state.createDepthTexture(size);
+    state.createTextures(size);
+    state.createQuadRenderPipeline();
 }
 
-pub fn createDepthTexture(state: *Renderer, size: mach.core.Size) void {
+fn createQuadRenderPipeline(state: *Renderer) void {
+    const bind_group_0_layout = mach.core.device.createBindGroupLayout(
+        &gpu.BindGroupLayout.Descriptor.init(.{
+            .entries = &.{
+                gpu.BindGroupLayout.Entry.texture(0, .{ .fragment = true }, .unfilterable_float, .dimension_2d, false),
+                gpu.BindGroupLayout.Entry.texture(1, .{ .fragment = true }, .unfilterable_float, .dimension_2d, false),
+                gpu.BindGroupLayout.Entry.texture(2, .{ .fragment = true }, .depth, .dimension_2d, false),
+            },
+        }),
+    );
+    defer bind_group_0_layout.release();
+
+    const bind_group_1_layout = mach.core.device.createBindGroupLayout(
+        &gpu.BindGroupLayout.Descriptor.init(.{
+            .entries = &.{
+                gpu.BindGroupLayout.Entry.buffer(0, .{ .fragment = true }, .uniform, false, @sizeOf(shaders.CameraUniform)),
+                gpu.BindGroupLayout.Entry.buffer(1, .{ .fragment = true }, .uniform, false, @sizeOf(shaders.LightBuffer)),
+            },
+        }),
+    );
+    defer bind_group_1_layout.release();
+
+    state.bind_group_0 = mach.core.device.createBindGroup(
+        &gpu.BindGroup.Descriptor.init(.{
+            .layout = bind_group_0_layout,
+            .entries = &.{
+                .{ .binding = 0, .texture_view = state.gbuffer_texture_view, .size = 0 },
+                .{ .binding = 1, .texture_view = state.gbuffer_texture_albedo_view, .size = 0 },
+                .{ .binding = 2, .texture_view = state.depth_view, .size = 0 },
+            },
+        }),
+    );
+    state.bind_group_1 = mach.core.device.createBindGroup(
+        &gpu.BindGroup.Descriptor.init(.{
+            .layout = bind_group_1_layout,
+            .entries = &.{
+                .{ .binding = 0, .buffer = state.camera_uniform, .size = @sizeOf(shaders.CameraUniform) },
+                .{ .binding = 1, .buffer = state.lights_buffer, .size = @sizeOf(shaders.LightBuffer) },
+            },
+        }),
+    );
+
+    const quad_pipeline_layout = mach.core.device.createPipelineLayout(
+        &gpu.PipelineLayout.Descriptor.init(.{
+            .bind_group_layouts = &.{ bind_group_0_layout, bind_group_1_layout },
+        }),
+    );
+    state.quad_pipeline = mach.core.device.createRenderPipeline(&.{
+        .layout = quad_pipeline_layout,
+        .fragment = &gpu.FragmentState.init(.{
+            .module = state.quad_shader,
+            .entry_point = "frag_main",
+            .targets = &.{
+                .{
+                    .format = .bgra8_unorm,
+                    .blend = &.{
+                        .color = .{ .operation = .add, .src_factor = .one, .dst_factor = .zero },
+                        .alpha = .{ .operation = .add, .src_factor = .one, .dst_factor = .zero },
+                    },
+                },
+            },
+        }),
+        .vertex = gpu.VertexState.init(.{
+            .module = state.quad_shader,
+            .entry_point = "vertex_main",
+            .buffers = &.{},
+        }),
+    });
+
+    // Debug Pipeline
+
+    const bind_group_1_debug_layout = mach.core.device.createBindGroupLayout(
+        &gpu.BindGroupLayout.Descriptor.init(.{
+            .entries = &.{
+                gpu.BindGroupLayout.Entry.buffer(0, .{ .fragment = true }, .uniform, false, @sizeOf(shaders.RenderMode)),
+            },
+        }),
+    );
+    defer bind_group_1_debug_layout.release();
+
+    state.bind_group_1_debug = mach.core.device.createBindGroup(
+        &gpu.BindGroup.Descriptor.init(.{
+            .layout = bind_group_1_debug_layout,
+            .entries = &.{
+                .{ .binding = 0, .buffer = state.render_mode_uniform, .size = @sizeOf(shaders.RenderMode) },
+            },
+        }),
+    );
+
+    const quad_debug_pipeline_layout = mach.core.device.createPipelineLayout(
+        &gpu.PipelineLayout.Descriptor.init(.{
+            .bind_group_layouts = &.{ bind_group_0_layout, bind_group_1_debug_layout },
+        }),
+    );
+    state.quad_debug_pipeline = mach.core.device.createRenderPipeline(&.{
+        .layout = quad_debug_pipeline_layout,
+        .fragment = &gpu.FragmentState.init(.{
+            .module = state.quad_debug_shader,
+            .entry_point = "frag_main",
+            .targets = &.{
+                .{
+                    .format = .bgra8_unorm,
+                    .blend = &.{
+                        .color = .{ .operation = .add, .src_factor = .one, .dst_factor = .zero },
+                        .alpha = .{ .operation = .add, .src_factor = .one, .dst_factor = .zero },
+                    },
+                },
+            },
+        }),
+        .vertex = gpu.VertexState.init(.{
+            .module = state.quad_debug_shader,
+            .entry_point = "vertex_main",
+            .buffers = &.{},
+        }),
+    });
+}
+
+pub fn createTextures(state: *Renderer, size: mach.core.Size) void {
     state.depth_texture = mach.core.device.createTexture(&.{
         .size = .{ .width = size.width, .height = size.height },
         .mip_level_count = 1,
