@@ -48,7 +48,7 @@ pub fn init(width: u32, height: u32, format: Format, pixels: []const u8) !Textur
     }
 
     const sampler = core.device.createSampler(&.{ .mag_filter = .linear, .min_filter = .linear });
-    const view = texture.createView(&gpu.TextureView.Descriptor{});
+    const view = texture.createView(&gpu.TextureView.Descriptor{ .label = "TextureCreator" });
 
     return .{
         .sampler = sampler,

@@ -37,12 +37,6 @@ pub const Vertex = extern struct {
     });
 };
 
-pub const CameraUniform = extern struct {
-    view: Mat4x4,
-    projection_view: Mat4x4,
-    inverse_projection_view: Mat4x4,
-};
-
 pub const InstanceData = extern struct {
     model: Mat4x4,
     model_normal: Mat4x4,
@@ -97,6 +91,19 @@ pub const InstanceData = extern struct {
     });
 };
 
+pub const CameraUniform = extern struct {
+    position: Vec3,
+    view: Mat4x4,
+    projection_view: Mat4x4,
+    inverse_projection_view: Mat4x4,
+};
+
+pub const MaterialConfig = extern struct {
+    metallic: f32,
+    roughness: f32,
+    _padding: [30]u8 = undefined, // TODO: use limits api
+};
+
 pub const Light = extern struct {
     position: Vec3,
     color: Vec4,
@@ -115,6 +122,8 @@ pub const RenderMode = enum(u32) {
     debug_albedo = 1,
     debug_normal = 2,
     debug_depth = 3,
+    debug_metallic = 4,
+    debug_roughness = 5,
 
     pub const max = @typeInfo(RenderMode).Enum.fields[@typeInfo(RenderMode).Enum.fields.len - 1].value;
 };

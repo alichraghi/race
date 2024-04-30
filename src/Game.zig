@@ -17,7 +17,6 @@ const Game = @This();
 
 main_camera: Camera,
 prev_mouse_pos: Vec3,
-camera_pos: Vec3,
 camera_rot: Vec3,
 camera_dir: Vec3,
 camera_front: Vec3,
@@ -83,19 +82,19 @@ pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Li
                 // });
             },
             1 => {
-                const l = try light.newEntity();
-                try light.set(l, .position, vec3(
-                    random.float(f32),
-                    random.float(f32),
-                    random.float(f32),
-                ));
-                try light.set(l, .color, vec4(
-                    random.float(f32),
-                    random.float(f32),
-                    random.float(f32),
-                    1,
-                ));
-                try light.set(l, .radius, random.float(f32) * 10);
+                // const l = try light.newEntity();
+                // try light.set(l, .position, vec3(
+                //     random.float(f32),
+                //     random.float(f32),
+                //     random.float(f32),
+                // ));
+                // try light.set(l, .color, vec4(
+                //     random.float(f32),
+                //     random.float(f32),
+                //     random.float(f32),
+                //     1,
+                // ));
+                // try light.set(l, .radius, random.float(f32) * 10);
             },
             else => unreachable,
         }
@@ -112,20 +111,24 @@ pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Li
     // try object.set(obj, .transform, .{ .scale = vec3(50, 0.01, 50) });
 
     // const l = try light.newEntity();
-    // try light.set(l, .position, vec3(0, 0.5, 0.7));
-    // try light.set(l, .color, vec4(0, 1, 0, 1));
-    // try light.set(l, .radius, 5);
+    // try light.set(l, .position, vec3(2.8, 0.8, -2.7));
+    // try light.set(l, .color, vec4(1, 0, 0, 1));
+    // try light.set(l, .radius, 2);
+
+    const l2 = try light.newEntity();
+    try light.set(l2, .position, vec3(2.8, 0.8, 2.7));
+    try light.set(l2, .color, vec4(1, 1, 0, 1));
+    try light.set(l2, .radius, 2);
 
     // Camera
     const main_camera = Camera{};
-    const mouse_pos = mach.core.mousePosition();
     const camera_rot = vec3(0, math.pi / 2.0, 0); // 90deg
     const camera_front = math.worldSpaceDirection(camera_rot);
+    const mouse_pos = mach.core.mousePosition();
 
     game.init(.{
         .main_camera = main_camera,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
-        .camera_pos = vec3(0, 0, -6),
         .camera_rot = camera_rot,
         .camera_dir = vec3(0, 0, 0),
         .camera_front = camera_front,
@@ -170,7 +173,7 @@ pub fn tickCamera(game: *Mod) !void {
         .mulScalar(state.camera_dir.z()) // Forward-Backward
         .add(&math.normalize(state.camera_front.cross(&math.up)).mulScalar(state.camera_dir.x())) // Right-Left
         .mulScalar(move_speed);
-    state.camera_pos = state.camera_pos.add(&camera_movement);
+    state.main_camera.position = state.main_camera.position.add(&camera_movement);
 
     // Projection
     const w: f32 = @floatFromInt(mach.core.descriptor.width);
@@ -179,8 +182,8 @@ pub fn tickCamera(game: *Mod) !void {
 
     // View
     state.main_camera.view = Camera.lookAt(
-        state.camera_pos,
-        state.camera_pos.add(&state.camera_front),
+        state.main_camera.position,
+        state.main_camera.position.add(&state.camera_front),
         math.up,
     );
 }

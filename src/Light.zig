@@ -31,7 +31,7 @@ bind_group: *gpu.BindGroup = undefined,
 // TODO: lights are always rendered over objects.
 //       figure out how to apply depth correctly,
 //       and change this to `builtin.mode == .Debug`
-show_points: bool = true,
+show_points: bool = false,
 
 pub fn init(light: *Light, renderer: *Renderer) !void {
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));

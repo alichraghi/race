@@ -12,6 +12,7 @@ const Vec3 = math.Vec3;
 const Vec2 = math.Vec2;
 const vec2 = math.vec2;
 const vec3 = math.vec3;
+const vec4 = math.vec4;
 
 const Model = @This();
 
@@ -24,7 +25,11 @@ pub const Mesh = struct {
 };
 
 pub const Material = struct {
+    id: u32,
     texture: Texture,
+    normal: ?Texture = null,
+    metallic: f32 = 0,
+    roughness: f32 = 0,
 };
 
 meshes: []Mesh,
@@ -69,6 +74,7 @@ pub fn initFromFile(path: []const u8) !Model {
 const M3D_UNDEF: u32 = 0xffffffff; // TODO
 
 const m3dp_Kd: c_int = 0;
+const m3dp_Ka: c_int = 1;
 const m3dp_Ks: c_int = 2;
 const m3dp_Ns: c_int = 3;
 const m3dp_Ke: c_int = 4;
@@ -76,6 +82,19 @@ const m3dp_Pr: c_int = 64;
 const m3dp_Pm: c_int = 65;
 const m3dp_Ps: c_int = 66;
 const m3dp_map_Kd: c_int = 128;
+const m3dp_map_Ka: c_int = 129;
+const m3dp_map_Ks: c_int = 130;
+const m3dp_map_Ns: c_int = 131;
+const m3dp_map_Ke: c_int = 132;
+const m3dp_map_Tf: c_int = 133;
+const m3dp_map_Km: c_int = 134;
+const m3dp_map_D: c_int = 135;
+const m3dp_map_N: c_int = 136;
+const m3dp_map_Pr: c_int = 192;
+const m3dp_map_Pm: c_int = 193;
+const m3dp_map_Ps: c_int = 194;
+const m3dp_map_Ni: c_int = 195;
+const m3dp_map_Nt: c_int = 196;
 
 pub fn initFromM3D(data: [:0]const u8) !Model {
     const m3d = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
@@ -87,6 +106,8 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
         .meshes = try core.allocator.alloc(Mesh, mesh_count),
         .materials = try core.allocator.alloc(Material, mesh_count),
     };
+
+    const seed_base: u32 = std.hash.XxHash32.hash(123, std.mem.span(m3d.handle.name));
 
     var l: u32 = 0;
     var k: i32 = -1;
@@ -102,88 +123,6 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
             for (0..m3d.handle.numface) |_| {
                 if (mi != face.materialid) break;
                 l += 1;
-            }
-
-            const material = m3d.materials()[@intCast(mi)];
-            for (material.prop[0..material.numprop]) |prop| {
-                switch (prop.type) {
-                    m3dp_Kd => {
-                        // memcpy(&model.materials[i + 1].maps[MATERIAL_MAP_DIFFUSE].color, &prop.value.color, 4);
-                        // model.materials[i + 1].maps[MATERIAL_MAP_DIFFUSE].value = 0.0f;
-                    },
-                    m3dp_Ks => {
-                        // memcpy(&model.materials[i + 1].maps[MATERIAL_MAP_SPECULAR].color, &prop.value.color, 4);
-                    },
-                    m3dp_Ns => {
-                        // model.materials[i + 1].maps[MATERIAL_MAP_SPECULAR].value = prop.value.fnum;
-                    },
-                    m3dp_Ke => {
-                        // memcpy(&model.materials[i + 1].maps[MATERIAL_MAP_EMISSION].color, &prop.value.color, 4);
-                        // model.materials[i + 1].maps[MATERIAL_MAP_EMISSION].value = 0.0f;
-                    },
-                    m3dp_Pm => {
-                        // model.materials[i + 1].maps[MATERIAL_MAP_METALNESS].value = prop.value.fnum;
-                    },
-                    m3dp_Pr => {
-                        // model.materials[i + 1].maps[MATERIAL_MAP_ROUGHNESS].value = prop.value.fnum;
-                    },
-                    m3dp_Ps => {
-                        // model.materials[i + 1].maps[MATERIAL_MAP_NORMAL].color = WHITE;
-                        // model.materials[i + 1].maps[MATERIAL_MAP_NORMAL].value = prop.value.fnum;
-                    },
-                    m3dp_map_Kd => {
-                        const texture = m3d.textures()[prop.value.textureid];
-                        // TODO: grayscale texture
-                        if (texture.f != 1) {
-                            const size = @as(u32, @intCast(texture.w)) * texture.h * texture.f;
-                            model.materials[@intCast(mi)] = .{
-                                .texture = try Texture.init(
-                                    texture.w,
-                                    texture.h,
-                                    switch (texture.f) {
-                                        4 => .rgba,
-                                        3 => .rgb,
-                                        else => unreachable,
-                                    },
-                                    texture.d[0..size],
-                                ),
-                            };
-                        } else {
-                            // TODO: cache this
-                            model.materials[@intCast(mi)] = .{
-                                .texture = Texture.initFromFile("assets/missing.png") catch unreachable,
-                            };
-                        }
-                    },
-                    else => {
-                        if (prop.type >= 128) {
-                            // const texture = m3d.textures()[prop.value.textureid];
-                            // model.materials[i] = .{
-                            //     .texture = try Texture.init(
-                            //         texture.w,
-                            //         texture.h,
-                            //         switch (texture.f) {
-                            //             4 => .rgba,
-                            //             3 => .rgb,
-                            //             else => std.debug.panic("\n{}, {}, {}\n", .{ texture.w, texture.h, texture.f }),
-                            //         },
-                            //         texture.d[0 .. texture.w * texture.h * texture.f],
-                            //     ),
-                            // };
-
-                            // switch (prop.type)
-                            // {
-                            //     case m3dp_map_Kd: model.materials[i + 1].maps[MATERIAL_MAP_DIFFUSE].texture = LoadTextureFromImage(image); break;
-                            //     case m3dp_map_Ks: model.materials[i + 1].maps[MATERIAL_MAP_SPECULAR].texture = LoadTextureFromImage(image); break;
-                            //     case m3dp_map_Ke: model.materials[i + 1].maps[MATERIAL_MAP_EMISSION].texture = LoadTextureFromImage(image); break;
-                            //     case m3dp_map_Km: model.materials[i + 1].maps[MATERIAL_MAP_NORMAL].texture = LoadTextureFromImage(image); break;
-                            //     case m3dp_map_Ka: model.materials[i + 1].maps[MATERIAL_MAP_OCCLUSION].texture = LoadTextureFromImage(image); break;
-                            //     case m3dp_map_Pm: model.materials[i + 1].maps[MATERIAL_MAP_ROUGHNESS].texture = LoadTextureFromImage(image); break;
-                            //     default: break;
-                            // }
-                        }
-                    },
-                }
             }
 
             const vertex_count = l * 3;
@@ -240,9 +179,50 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
     }
 
     // Load materials
-    // for (m3d.materials(), 0..) |material, i| {
+    for (m3d.materials(), 0..) |material, i| {
+        model.materials[i] = .{
+            .id = seed_base +% @as(u32, @intCast(i)),
+            .texture = undefined,
+        };
 
-    // }
+        for (material.prop[0..material.numprop]) |prop| {
+            std.debug.print("\ntype: {}, {}\n", .{ prop.type, prop.value.fnum });
+            switch (prop.type) {
+                m3dp_Pm => model.materials[i].metallic = prop.value.fnum,
+                m3dp_Pr => model.materials[i].roughness = prop.value.fnum,
+                m3dp_map_Kd, m3dp_map_Km => {
+                    // TODO: grayscale texture
+                    const texture = blk: {
+                        const m3d_texture = m3d.textures()[prop.value.textureid];
+                        if (m3d_texture.f != 1) {
+                            const size = @as(u32, @intCast(m3d_texture.w)) * m3d_texture.h * m3d_texture.f;
+                            break :blk try Texture.init(
+                                m3d_texture.w,
+                                m3d_texture.h,
+                                switch (m3d_texture.f) {
+                                    4 => .rgba,
+                                    3 => .rgb,
+                                    else => unreachable,
+                                },
+                                m3d_texture.d[0..size],
+                            );
+                        }
+
+                        std.log.err("oh no. fix this", .{});
+                        // TODO: cache this
+                        break :blk Texture.initFromFile("assets/missing.png") catch unreachable;
+                    };
+
+                    switch (prop.type) {
+                        m3dp_map_Kd => model.materials[i].texture = texture,
+                        m3dp_map_Km => model.materials[i].normal = texture,
+                        else => unreachable,
+                    }
+                },
+                else => {},
+            }
+        }
+    }
 
     for (model.meshes) |mesh| {
         mesh.vertex_buf.unmap();

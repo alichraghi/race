@@ -1,3 +1,4 @@
+const std = @import("std");
 const math = @import("mach").math;
 const Vec3 = math.Vec3;
 const Mat3x3 = math.Mat3x3;
@@ -71,7 +72,7 @@ pub fn transformNormal(rotation: Vec3, scale: Vec3) Mat4x4 {
     );
 }
 
-pub fn invert(a: Mat4x4) Mat4x4 {
+pub fn inverse(a: Mat4x4) Mat4x4 {
     const a00 = a.v[0].v[0];
     const a01 = a.v[0].v[1];
     const a02 = a.v[0].v[2];
@@ -136,3 +137,12 @@ pub fn invert(a: Mat4x4) Mat4x4 {
 
     return out;
 }
+
+// pub fn inverse(m: Mat4x4) Mat4x4 {
+//     return mat4x4(
+//         &vec4(m.col(0).x(), m.col(1).x(), m.col(2).x(), 0),
+//         &vec4(m.col(0).y(), m.col(1).y(), m.col(2).y(), 0),
+//         &vec4(m.col(0).z(), m.col(1).z(), m.col(2).z(), 0),
+//         &vec4(-m.col(0).dot(&m.col(3)), -m.col(1).dot(&m.col(3)), -m.col(2).dot(&m.col(3)), 1),
+//     );
+// }

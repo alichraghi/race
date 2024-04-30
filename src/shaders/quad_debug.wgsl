@@ -1,6 +1,8 @@
 const MODE_ALBEDO = 1;
 const MODE_NORMAL = 2;
 const MODE_DEPTH = 3;
+const MODE_METALLIC = 4;
+const MODE_ROUGHNESS = 5;
 
 struct Camera {
   view: mat4x4<f32>,
@@ -11,17 +13,14 @@ struct Camera {
 @group(0) @binding(0) var gbuffer_normal: texture_2d<f32>;
 @group(0) @binding(1) var gbuffe_albedo: texture_2d<f32>;
 @group(0) @binding(2) var gbuffer_depth: texture_depth_2d;
+@group(0) @binding(3) var gbuffer_metallic: texture_2d<f32>;
+@group(0) @binding(4) var gbuffer_roughness: texture_2d<f32>;
 
 @group(1) @binding(0) var<uniform> mode: u32;
 
 @fragment
 fn frag_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
   switch mode {
-    case MODE_DEPTH: {
-      let depth = textureLoad(gbuffer_depth, vec2<i32>(floor(coord.xy)), 0);
-      // remap depth into something a bit more visible
-      return vec4((1.0 - depth) * 50.0);
-    }
     case MODE_ALBEDO: {
       return textureLoad(gbuffe_albedo, vec2<i32>(floor(coord.xy)), 0);
     }
@@ -31,6 +30,17 @@ fn frag_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
       result.y = (result.y + 1.0) * 0.5;
       result.z = (result.z + 1.0) * 0.5;
       return result;
+    }
+    case MODE_DEPTH: {
+      let depth = textureLoad(gbuffer_depth, vec2<i32>(floor(coord.xy)), 0);
+      // remap depth into something a bit more visible
+      return vec4(depth);
+    }
+    case MODE_METALLIC: {
+      return vec4(textureLoad(gbuffer_metallic, vec2<i32>(floor(coord.xy)), 0).r);
+    }
+    case MODE_ROUGHNESS: {
+      return vec4(textureLoad(gbuffer_roughness, vec2<i32>(floor(coord.xy)), 0).r);
     }
     default {
       discard;
