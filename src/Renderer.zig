@@ -35,6 +35,8 @@ pub const local_events = .{
     .endRender = .{ .handler = endRender },
 };
 
+limits: gpu.SupportedLimits,
+
 pass: *gpu.RenderPassEncoder,
 encoder: *gpu.CommandEncoder,
 depth_texture: *gpu.Texture,
@@ -45,7 +47,8 @@ shader: *gpu.ShaderModule,
 camera_uniform: *gpu.Buffer,
 light_list_uniform: *gpu.Buffer,
 instance_buffer: *gpu.Buffer,
-material_config_uniform: *gpu.Buffer,
+material_params_uniform: *gpu.Buffer,
+material_params_uniform_stride: u32,
 default_material: Model.Material,
 
 pub const Transform = struct {
@@ -94,56 +97,50 @@ const Pipeline = struct {
 const max_scene_objects = 1024;
 const max_materials = 1024;
 
-pub fn init(renderer: *Renderer) !void {
-    // Depth Texture
-    const depth_texture, const depth_view = createDepthTexture();
-    const shader = mach.core.device.createShaderModuleWGSL("object", @embedFile("shaders/object.wgsl"));
-    const camera_uniform = mach.core.device.createBuffer(&.{
+pub fn init(state: *Renderer) !void {
+    state.limits = gpu.SupportedLimits{ .limits = .{ .min_uniform_buffer_offset_alignment = 256 } };
+    if (!build_options.use_sysgpu) {
+        _ = mach.core.device.getLimits(&state.limits);
+    }
+
+    const min_uniform_alignment = state.limits.limits.min_uniform_buffer_offset_alignment;
+    state.material_params_uniform_stride = math.uniformStride(shaders.MaterialParams, min_uniform_alignment);
+
+    state.createTextures(.{ .width = mach.core.descriptor.width, .height = mach.core.descriptor.height });
+    state.shader = mach.core.device.createShaderModuleWGSL("object", @embedFile("shaders/object.wgsl"));
+    state.camera_uniform = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
         .size = @sizeOf(shaders.CameraUniform),
         .mapped_at_creation = .false,
     });
-    const light_list_uniform = mach.core.device.createBuffer(&.{
+    state.light_list_uniform = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
         .size = @sizeOf(shaders.LightListUniform),
         .mapped_at_creation = .false,
     });
-    const instance_buffer = mach.core.device.createBuffer(&.{
+    state.instance_buffer = mach.core.device.createBuffer(&.{
         .usage = .{ .vertex = true, .copy_dst = true },
         .size = @sizeOf(shaders.InstanceData) * max_scene_objects, // TODO: enough?
         .mapped_at_creation = .false,
     });
-    const material_config_uniform = mach.core.device.createBuffer(&.{
+    state.material_params_uniform = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(shaders.MaterialConfig) * max_materials,
+        .size = @sizeOf(shaders.MaterialParams) * max_materials,
         .mapped_at_creation = .false,
     });
-    const default_material: Model.Material = .{
+    state.default_material = .{
         .name = "Default Material",
         .texture = try Texture.initFromFile("assets/prototype-textures/Dark/texture_02.png"),
     };
-
-    renderer.* = .{
-        .pass = undefined,
-        .encoder = mach.core.device.createCommandEncoder(&.{}),
-        .depth_texture = depth_texture,
-        .depth_view = depth_view,
-        .shader = shader,
-        .camera_uniform = camera_uniform,
-        .light_list_uniform = light_list_uniform,
-        .instance_buffer = instance_buffer,
-        .material_config_uniform = material_config_uniform,
-        .default_material = default_material,
-    };
+    state.encoder = mach.core.device.createCommandEncoder(&.{});
 }
 
 fn framebufferResize(renderer: *Mod, size: mach.core.Size) void {
-    _ = size; // TODO
     const state: *Renderer = renderer.state();
-    state.depth_texture, state.depth_view = createDepthTexture();
+    state.createTextures(size);
 }
 
-pub fn beginRender(renderer: *Mod) !void {
+fn beginRender(renderer: *Mod) !void {
     const state: *Renderer = renderer.state();
 
     const back_buffer_view = mach.core.swap_chain.getCurrentTextureView().?;
@@ -168,7 +165,7 @@ pub fn beginRender(renderer: *Mod) !void {
     state.pass = state.encoder.beginRenderPass(&pass_info);
 }
 
-pub fn endRender(renderer: *Mod) !void {
+fn endRender(renderer: *Mod) !void {
     const state: *Renderer = renderer.state();
 
     state.pass.end();
@@ -184,33 +181,22 @@ pub fn endRender(renderer: *Mod) !void {
     mach.core.swap_chain.present();
 }
 
-pub fn createDepthTexture() struct { *gpu.Texture, *gpu.TextureView } {
-    const texture = mach.core.device.createTexture(&gpu.Texture.Descriptor{
-        .size = gpu.Extent3D{
-            .width = mach.core.descriptor.width,
-            .height = mach.core.descriptor.height,
-        },
+fn createTextures(state: *Renderer, screen_size: mach.core.Size) void {
+    state.depth_texture = mach.core.device.createTexture(&gpu.Texture.Descriptor{
+        .size = gpu.Extent3D{ .width = screen_size.width, .height = screen_size.height },
         .format = .depth24_plus,
         .usage = .{
             .render_attachment = true,
             .texture_binding = true,
         },
     });
-
-    const view = texture.createView(&gpu.TextureView.Descriptor{
+    state.depth_view = state.depth_texture.createView(&gpu.TextureView.Descriptor{
         .format = .depth24_plus,
         .dimension = .dimension_2d,
-        .array_layer_count = 1,
-        .mip_level_count = 1,
     });
-
-    return .{ texture, view };
 }
 
-pub fn getPipeline(renderer: *Renderer, config: Pipeline.Config) !*Pipeline {
-    const gop = try renderer.pipelines.getOrPut(mach.core.allocator, config);
-    if (gop.found_existing) return gop.value_ptr;
-
+fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
     const bind_group_layout = mach.core.device.createBindGroupLayout(
         &gpu.BindGroupLayout.Descriptor.init(.{
             .entries = &.{
@@ -228,9 +214,9 @@ pub fn getPipeline(renderer: *Renderer, config: Pipeline.Config) !*Pipeline {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                gpu.BindGroup.Entry.buffer(0, renderer.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
-                gpu.BindGroup.Entry.buffer(1, renderer.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
-                gpu.BindGroup.Entry.buffer(2, renderer.material_config_uniform, 0, @sizeOf(shaders.MaterialConfig)),
+                gpu.BindGroup.Entry.buffer(0, state.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
+                gpu.BindGroup.Entry.buffer(1, state.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
+                gpu.BindGroup.Entry.buffer(2, state.material_params_uniform, 0, @sizeOf(shaders.MaterialParams)),
                 gpu.BindGroup.Entry.sampler(3, config.material.texture.sampler),
                 gpu.BindGroup.Entry.textureView(4, config.material.texture.view),
             },
@@ -243,7 +229,7 @@ pub fn getPipeline(renderer: *Renderer, config: Pipeline.Config) !*Pipeline {
     const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
         .layout = pipeline_layout,
         .fragment = &gpu.FragmentState.init(.{
-            .module = renderer.shader,
+            .module = state.shader,
             .entry_point = "frag_main",
             .targets = &.{.{
                 .format = mach.core.descriptor.format,
@@ -252,7 +238,7 @@ pub fn getPipeline(renderer: *Renderer, config: Pipeline.Config) !*Pipeline {
             }},
         }),
         .vertex = gpu.VertexState.init(.{
-            .module = renderer.shader,
+            .module = state.shader,
             .entry_point = "vertex_main",
             .buffers = &.{ shaders.Vertex.layout, shaders.InstanceData.layout },
         }),
@@ -264,11 +250,20 @@ pub fn getPipeline(renderer: *Renderer, config: Pipeline.Config) !*Pipeline {
     };
     const pipeline = mach.core.device.createRenderPipeline(&pipeline_descriptor);
 
-    gop.value_ptr.* = .{ .pipeline = pipeline, .bind_group = bind_group };
+    return .{
+        .pipeline = pipeline,
+        .bind_group = bind_group,
+    };
+}
+
+fn getPipeline(state: *Renderer, config: Pipeline.Config) !*Pipeline {
+    const gop = try state.pipelines.getOrPut(mach.core.allocator, config);
+    if (gop.found_existing) return gop.value_ptr;
+    gop.value_ptr.* = state.createPipeline(config);
     return gop.value_ptr;
 }
 
-pub fn deinit(renderer: *Mod) !void {
+fn deinit(renderer: *Mod) !void {
     const state = renderer.state();
 
     state.shader.release();
@@ -281,7 +276,7 @@ pub fn deinit(renderer: *Mod) !void {
     state.pipelines.deinit(mach.core.allocator);
 }
 
-pub fn render(renderer: *Mod, camera: Camera) !void {
+fn render(renderer: *Mod, camera: Camera) !void {
     const state: *Renderer = renderer.state();
     const game_state: *Renderer = renderer.state();
 
@@ -322,7 +317,7 @@ pub fn render(renderer: *Mod, camera: Camera) !void {
 
     // Instance Data
     var instance_offset: u32 = 0;
-    var material_config_offset: u32 = 0;
+    var material_params_offset: u32 = 0;
     var iter = renderer.entities.query(.{ .all = &.{.{ .renderer = &.{.model} }} });
     while (iter.next()) |archetype| for (
         archetype.slice(.entity, .id),
@@ -353,13 +348,13 @@ pub fn render(renderer: *Mod, camera: Camera) !void {
             const pipeline = try state.getPipeline(.{ .material = material });
 
             mach.core.queue.writeBuffer(
-                state.material_config_uniform,
-                material_config_offset,
-                &[_]shaders.MaterialConfig{.{ .roughness = material.roughness }},
+                state.material_params_uniform,
+                material_params_offset,
+                &[_]shaders.MaterialParams{.{ .roughness = material.roughness }},
             );
 
             game_state.pass.setPipeline(pipeline.pipeline);
-            game_state.pass.setBindGroup(0, pipeline.bind_group, &.{material_config_offset});
+            game_state.pass.setBindGroup(0, pipeline.bind_group, &.{material_params_offset});
             game_state.pass.setVertexBuffer(0, mesh.vertex_buf, 0, mesh.vertex_count * @sizeOf(shaders.Vertex));
             game_state.pass.setVertexBuffer(1, state.instance_buffer, instance_start_offset, transforms.len * @sizeOf(shaders.InstanceData));
             if (mesh.index_buf) |index_buf| {
@@ -369,7 +364,7 @@ pub fn render(renderer: *Mod, camera: Camera) !void {
                 game_state.pass.draw(mesh.vertex_count, @intCast(transforms.len), 0, 0);
             }
 
-            material_config_offset += @sizeOf(shaders.MaterialConfig);
+            material_params_offset += state.material_params_uniform_stride;
         }
     };
 }

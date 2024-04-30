@@ -104,7 +104,6 @@ pub const LightListUniform = extern struct {
     len: u32,
 };
 
-pub const MaterialConfig = extern struct {
+pub const MaterialParams = extern struct {
     roughness: f32,
-    _padding: [252]u8 = undefined, // TODO: use limits api
 };

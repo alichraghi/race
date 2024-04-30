@@ -36,11 +36,12 @@ pub const local_events = .{
     .tickCamera = .{ .handler = tickCamera },
 };
 
-pub fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
+fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
     mach.core.setCursorMode(.disabled);
 
     // Init modules
     renderer.init(.{
+        .limits = undefined,
         .pass = undefined,
         .encoder = undefined,
         .depth_texture = undefined,
@@ -49,7 +50,8 @@ pub fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
         .camera_uniform = undefined,
         .light_list_uniform = undefined,
         .instance_buffer = undefined,
-        .material_config_uniform = undefined,
+        .material_params_uniform = undefined,
+        .material_params_uniform_stride = undefined,
         .default_material = undefined,
     });
     light.init(.{
@@ -60,7 +62,7 @@ pub fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
         .bind_group = undefined,
     });
     try renderer.state().init();
-    try light.state().init(10);
+    try light.state().init(renderer.state());
 
     // Objects
     const samurai_model = try Model.initFromFile("assets/samurai.m3d");
@@ -122,7 +124,7 @@ pub fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
     });
 }
 
-pub fn deinit(game: *Mod, renderer: *Renderer.Mod) !void {
+fn deinit(game: *Mod, renderer: *Renderer.Mod) !void {
     const state: *Game = game.state();
 
     renderer.send(.deinit, .{});
@@ -130,7 +132,7 @@ pub fn deinit(game: *Mod, renderer: *Renderer.Mod) !void {
     state.depth_view.release();
 }
 
-pub fn tick(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
+fn tick(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
     const state: *Game = game.state();
 
     game.send(.processEvents, .{});
@@ -147,7 +149,7 @@ pub fn tick(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
     renderer.send(.endRender, .{});
 }
 
-pub fn tickCamera(game: *Mod) !void {
+fn tickCamera(game: *Mod) !void {
     const state: *Game = game.state();
 
     // Position
@@ -176,7 +178,7 @@ pub fn tickCamera(game: *Mod) !void {
     );
 }
 
-pub fn processEvents(game: *Mod, core: *Core.Mod) !void {
+fn processEvents(game: *Mod, core: *Core.Mod) !void {
     const state: *Game = game.state();
 
     var iter = mach.core.pollEvents();

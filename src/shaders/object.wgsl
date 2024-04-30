@@ -15,7 +15,7 @@ struct LightList {
     len: u32,
 };
 
-struct MaterialConfig {
+struct MaterialParams {
   metallic: f32,
   roughness: f32,
 }
@@ -32,7 +32,7 @@ struct InstanceData {
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> light: LightList;
-@group(0) @binding(2) var<uniform> material_config: MaterialConfig;
+@group(0) @binding(2) var<uniform> material_params: MaterialParams;
 @group(0) @binding(3) var diffuse_sampler: sampler;
 @group(0) @binding(4) var texture: texture_2d<f32>;
 

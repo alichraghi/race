@@ -32,19 +32,9 @@ light_uniform_stride: u32,
 bind_group: *gpu.BindGroup,
 show_points: bool = builtin.mode == .Debug,
 
-pub fn init(light: *Light, lights_capacity: u32) !void {
+pub fn init(state: *Light, renderer_state: *Renderer) !void {
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
-
-    var limits = gpu.SupportedLimits{
-        // TODO(sysgpu)
-        .limits = .{
-            .min_uniform_buffer_offset_alignment = 256,
-        },
-    };
-    if (!build_options.use_sysgpu) {
-        _ = mach.core.device.getLimits(&limits);
-    }
 
     const camera_uniform_buf = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
@@ -52,13 +42,11 @@ pub fn init(light: *Light, lights_capacity: u32) !void {
         .mapped_at_creation = .false,
     });
 
-    const light_uniform_stride = math.ceilToNextMultiple(
-        @sizeOf(shaders.LightUniform),
-        limits.limits.min_uniform_buffer_offset_alignment,
-    );
+    const min_uniform_alignment = renderer_state.limits.limits.min_uniform_buffer_offset_alignment;
+    const light_uniform_stride = math.uniformStride(shaders.LightUniform, min_uniform_alignment);
     const light_uniform_buf = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
-        .size = lights_capacity * light_uniform_stride,
+        .size = shaders.max_lights * light_uniform_stride,
         .mapped_at_creation = .false,
     });
 
@@ -122,7 +110,7 @@ pub fn init(light: *Light, lights_capacity: u32) !void {
     };
     const pipeline = mach.core.device.createRenderPipeline(&pipeline_descriptor);
 
-    light.* = .{
+    state.* = .{
         .pipeline = pipeline,
         .camera_uniform_buf = camera_uniform_buf,
         .light_uniform_buf = light_uniform_buf,
@@ -131,7 +119,7 @@ pub fn init(light: *Light, lights_capacity: u32) !void {
     };
 }
 
-pub fn deinit(light: *Mod) !void {
+fn deinit(light: *Mod) !void {
     const state = light.state();
 
     state.bind_group.release();
@@ -139,7 +127,7 @@ pub fn deinit(light: *Mod) !void {
     state.light_uniform_buf.release();
 }
 
-pub fn render(light: *Mod, renderer: *Renderer.Mod, camera: Camera) !void {
+fn render(light: *Mod, renderer: *Renderer.Mod, camera: Camera) !void {
     const state = light.state();
     const renderer_state = renderer.state();
 
