@@ -1,23 +1,54 @@
 const mach = @import("mach");
 const math = @import("math.zig");
 const gpu = mach.gpu;
+const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
 const Vec4 = math.Vec4;
 const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
 
-pub const CameraUniform = struct {
+pub const CameraUniform = extern struct {
     projection: Mat4x4,
     view: Mat4x4,
 };
 
-pub const LightUniform = struct {
+pub const LightUniform = extern struct {
     position: Vec3,
     color: Vec4,
     radius: f32,
 };
 
-pub const InstanceData = struct {
+pub const Vertex = extern struct {
+    position: Vec3,
+    normal: Vec3,
+    uv: Vec2,
+
+    pub const attributes = [_]gpu.VertexAttribute{
+        .{
+            .format = .float32x3,
+            .offset = @offsetOf(Vertex, "position"),
+            .shader_location = 0,
+        },
+        .{
+            .format = .float32x3,
+            .offset = @offsetOf(Vertex, "normal"),
+            .shader_location = 1,
+        },
+        .{
+            .format = .float32x2,
+            .offset = @offsetOf(Vertex, "uv"),
+            .shader_location = 2,
+        },
+    };
+
+    pub const layout = gpu.VertexBufferLayout.init(.{
+        .array_stride = @sizeOf(Vertex),
+        .step_mode = .vertex,
+        .attributes = &attributes,
+    });
+};
+
+pub const InstanceData = extern struct {
     transform: Mat4x4,
     normal: Mat3x3,
 
@@ -67,8 +98,14 @@ pub const InstanceData = struct {
 };
 
 pub const max_lights = 10;
-pub const LightListUniform = struct {
+pub const LightListUniform = extern struct {
     ambient_color: Vec4,
     lights: [max_lights]LightUniform,
     len: u32,
+};
+
+pub const MaterialConfig = extern struct {
+    metallic: f32,
+    roughness: f32,
+    _padding: [248]u8 = undefined, // TODO: use limits api
 };

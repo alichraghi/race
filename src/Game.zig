@@ -19,8 +19,6 @@ depth_texture: *gpu.Texture,
 depth_view: *gpu.TextureView,
 
 main_camera: Camera,
-wrench: mach.EntityID,
-quad: mach.EntityID,
 
 prev_mouse_pos: Vec3,
 
@@ -56,6 +54,7 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
         .camera_uniform = undefined,
         .light_list_uniform = undefined,
         .instance_buffer = undefined,
+        .material_config_uniform = undefined,
     });
     light.init(.{
         .pipeline = undefined,
@@ -68,23 +67,14 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
     try light.state().init(10);
 
     // Objects
-    const quad = try object.newEntity();
-    const quad_model = try Model.initFromFile("assets/quad.m3d");
-    try object.set(quad, .texture, null);
-    try object.set(quad, .model, quad_model);
-    try object.set(quad, .transform, .{ .scale = vec3(3, 0.01, 3) });
+    const samurai = try object.newEntity();
+    const samurai_model = try Model.initFromFile("assets/samurai.m3d");
+    try object.set(samurai, .model, samurai_model);
+    try object.set(samurai, .transform, .{});
 
-    const cube = try object.newEntity();
-    const cube_model = try Model.initFromFile("assets/cube.m3d");
-    try object.set(cube, .texture, null);
-    try object.set(cube, .model, cube_model);
-    try object.set(cube, .transform, .{ .scale = vec3(0.5, 0.5, 0.5) });
-
-    const wrench = try object.newEntity();
-    const wrench_model = try Model.initFromFile("assets/wrench.obj");
-    try object.set(wrench, .texture, null);
-    try object.set(wrench, .model, wrench_model);
-    try object.set(wrench, .instances, try mach.core.allocator.dupe(Object.Transform, &.{
+    const samurai_instanced = try object.newEntity();
+    try object.set(samurai_instanced, .model, samurai_model);
+    try object.set(samurai_instanced, .instances, try mach.core.allocator.dupe(Object.Transform, &.{
         .{
             .translation = vec3(0, 0, 0),
             .rotation = vec3(0, 0, 0),
@@ -130,8 +120,6 @@ pub fn init(game: *Mod, object: *Object.Mod, light: *Light.Mod) !void {
         .depth_texture = depth_texture,
         .depth_view = depth_view,
         .main_camera = main_camera,
-        .wrench = wrench,
-        .quad = quad,
         .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
         .camera_pos = vec3(0, 0, -6),
         .camera_rot = camera_rot,

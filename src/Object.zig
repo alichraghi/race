@@ -21,7 +21,6 @@ pub const name = .object;
 pub const Mod = mach.Mod(Object);
 
 pub const components = .{
-    .texture = .{ .type = ?Texture },
     .model = .{ .type = Model },
     .transform = .{ .type = Transform },
     .instances = .{ .type = []Transform },
@@ -31,11 +30,12 @@ pub const local_events = .{
     .render = .{ .handler = render },
 };
 
-pipelines: std.AutoArrayHashMapUnmanaged(PipelineConfig, Pipeline) = .{},
+pipelines: std.ArrayHashMapUnmanaged(Pipeline.Config, Pipeline, Pipeline.Config.ArrayHashContext, false) = .{},
 shader: *gpu.ShaderModule,
 camera_uniform: *gpu.Buffer,
 light_list_uniform: *gpu.Buffer,
 instance_buffer: *gpu.Buffer,
+material_config_uniform: *gpu.Buffer,
 
 pub const Transform = struct {
     translation: Vec3 = vec3(0, 0, 0),
@@ -43,14 +43,29 @@ pub const Transform = struct {
     scale: Vec3 = vec3(1, 1, 1),
 };
 
-pub const PipelineConfig = struct {
-    texture: ?Texture,
-};
-
 const Pipeline = struct {
     pipeline: *gpu.RenderPipeline,
     bind_group: *gpu.BindGroup,
+
+    pub const Config = struct {
+        material: Model.Material,
+
+        pub const ArrayHashContext = struct {
+            pub fn eql(ctx: ArrayHashContext, a: Config, b: Config, _: usize) bool {
+                _ = ctx;
+                return a.material.id == b.material.id;
+            }
+
+            pub fn hash(ctx: ArrayHashContext, a: Config) u32 {
+                _ = ctx;
+                return a.material.id;
+            }
+        };
+    };
 };
+
+const max_scene_objects = 1024;
+const max_materials = 1024;
 
 pub fn init(object: *Object) !void {
     const shader = mach.core.device.createShaderModuleWGSL("object", @embedFile("shaders/object.wgsl"));
@@ -66,7 +81,12 @@ pub fn init(object: *Object) !void {
     });
     const instance_buffer = mach.core.device.createBuffer(&.{
         .usage = .{ .vertex = true, .copy_dst = true },
-        .size = @sizeOf(shaders.InstanceData) * 1024, // TODO: enough?
+        .size = @sizeOf(shaders.InstanceData) * max_scene_objects, // TODO: enough?
+        .mapped_at_creation = .false,
+    });
+    const material_config_uniform = mach.core.device.createBuffer(&.{
+        .usage = .{ .uniform = true, .copy_dst = true },
+        .size = @sizeOf(shaders.MaterialConfig) * max_materials,
         .mapped_at_creation = .false,
     });
 
@@ -75,22 +95,25 @@ pub fn init(object: *Object) !void {
         .camera_uniform = camera_uniform,
         .light_list_uniform = light_list_uniform,
         .instance_buffer = instance_buffer,
+        .material_config_uniform = material_config_uniform,
     };
 }
 
-pub fn getPipeline(object: *Object, config: PipelineConfig) !*Pipeline {
+pub fn getPipeline(object: *Object, config: Pipeline.Config) !*Pipeline {
     const gop = try object.pipelines.getOrPut(mach.core.allocator, config);
     if (gop.found_existing) return gop.value_ptr;
 
-    const marble_texture = try Texture.initFromFile("assets/missing.png");
+    const material = config.material;
+    //  try Texture.initFromFile("assets/missing.png");
 
     const bind_group_layout = mach.core.device.createBindGroupLayout(
         &gpu.BindGroupLayout.Descriptor.init(.{
             .entries = &.{
                 gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
                 gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
-                gpu.BindGroupLayout.Entry.sampler(2, .{ .fragment = true }, .filtering),
-                gpu.BindGroupLayout.Entry.texture(3, .{ .fragment = true }, .float, .dimension_2d, false),
+                gpu.BindGroupLayout.Entry.buffer(2, .{ .fragment = true }, .uniform, true, 0),
+                gpu.BindGroupLayout.Entry.sampler(3, .{ .fragment = true }, .filtering),
+                gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .float, .dimension_2d, false),
             },
         }),
     );
@@ -100,17 +123,11 @@ pub fn getPipeline(object: *Object, config: PipelineConfig) !*Pipeline {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                // TODO(sysgpu)
-                if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(0, object.camera_uniform, 0, @sizeOf(shaders.CameraUniform), 0)
-                else
-                    gpu.BindGroup.Entry.buffer(0, object.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
-                if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform), 0)
-                else
-                    gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
-                gpu.BindGroup.Entry.sampler(2, marble_texture.sampler),
-                gpu.BindGroup.Entry.textureView(3, marble_texture.view),
+                gpu.BindGroup.Entry.buffer(0, object.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
+                gpu.BindGroup.Entry.buffer(1, object.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
+                gpu.BindGroup.Entry.buffer(2, object.material_config_uniform, 0, @sizeOf(shaders.MaterialConfig)),
+                gpu.BindGroup.Entry.sampler(3, material.texture.sampler),
+                gpu.BindGroup.Entry.textureView(4, material.texture.view),
             },
         }),
     );
@@ -132,7 +149,7 @@ pub fn getPipeline(object: *Object, config: PipelineConfig) !*Pipeline {
         .vertex = gpu.VertexState.init(.{
             .module = object.shader,
             .entry_point = "vertex_main",
-            .buffers = &.{ Model.Vertex.layout, shaders.InstanceData.layout },
+            .buffers = &.{ shaders.Vertex.layout, shaders.InstanceData.layout },
         }),
         .depth_stencil = &.{
             .format = .depth24_plus,
@@ -199,47 +216,58 @@ pub fn render(object: *Mod, game: *Game.Mod, camera: Camera) !void {
     );
 
     // Instance Data
-    var buffer_offset: u32 = 0;
-    var object_iter = object.entities.query(.{ .all = &.{.{ .object = &.{ .texture, .model } }} });
+    var instance_offset: u32 = 0;
+    var material_config_offset: u32 = 0;
+    var object_iter = object.entities.query(.{ .all = &.{.{ .object = &.{.model} }} });
     while (object_iter.next()) |archetype| for (
         archetype.slice(.entity, .id),
-        archetype.slice(.object, .texture),
         archetype.slice(.object, .model),
-    ) |id, texture, model| {
+    ) |id, model| {
         const transform = object.get(id, .transform);
         const instances = object.get(id, .instances);
-
-        const pipeline = try state.getPipeline(.{ .texture = texture });
 
         const transforms = if (transform) |single| &.{single} else instances.?;
         std.debug.assert(transforms.len > 0);
 
-        const start_offset = buffer_offset;
+        const instance_start_offset = instance_offset;
         for (transforms) |instance| {
             // writeBuffer is just a @memcpy
             mach.core.queue.writeBuffer(
                 state.instance_buffer,
-                buffer_offset,
+                instance_offset,
                 &[_]shaders.InstanceData{.{
                     .transform = math.transform(instance.translation, instance.rotation, instance.scale),
                     .normal = math.transformNormal(instance.rotation, instance.scale),
                 }},
             );
-            buffer_offset += @sizeOf(shaders.InstanceData);
+            instance_offset += @sizeOf(shaders.InstanceData);
         }
 
-        game_state.pass.setPipeline(pipeline.pipeline);
-        game_state.pass.setBindGroup(0, pipeline.bind_group, &.{});
-        game_state.pass.setVertexBuffer(0, model.vertex_buf, 0, model.vertex_count * @sizeOf(Model.Vertex));
-        game_state.pass.setVertexBuffer(1, state.instance_buffer, start_offset, transforms.len * @sizeOf(shaders.InstanceData));
-        if (model.index_buf) |index_buf| {
-            game_state.pass.setIndexBuffer(index_buf, .uint32, 0, model.index_count * @sizeOf(u32));
-        }
+        for (model.meshes) |mesh| {
+            const material = model.materials[mesh.material];
+            const pipeline = try state.getPipeline(.{ .material = material });
 
-        if (model.index_buf) |_| {
-            game_state.pass.drawIndexed(model.index_count, @intCast(transforms.len), 0, 0, 0);
-        } else {
-            game_state.pass.draw(model.vertex_count, @intCast(transforms.len), 0, 0);
+            mach.core.queue.writeBuffer(
+                state.material_config_uniform,
+                material_config_offset,
+                &[_]shaders.MaterialConfig{.{
+                    .metallic = material.metallic,
+                    .roughness = material.roughness,
+                }},
+            );
+
+            game_state.pass.setPipeline(pipeline.pipeline);
+            game_state.pass.setBindGroup(0, pipeline.bind_group, &.{material_config_offset});
+            game_state.pass.setVertexBuffer(0, mesh.vertex_buf, 0, mesh.vertex_count * @sizeOf(shaders.Vertex));
+            game_state.pass.setVertexBuffer(1, state.instance_buffer, instance_start_offset, transforms.len * @sizeOf(shaders.InstanceData));
+            if (mesh.index_buf) |index_buf| {
+                game_state.pass.setIndexBuffer(index_buf, .uint32, 0, mesh.index_count * @sizeOf(u32));
+                game_state.pass.drawIndexed(mesh.index_count, @intCast(transforms.len), 0, 0, 0);
+            } else {
+                game_state.pass.draw(mesh.vertex_count, @intCast(transforms.len), 0, 0);
+            }
+
+            material_config_offset += @sizeOf(shaders.MaterialConfig);
         }
     };
 }

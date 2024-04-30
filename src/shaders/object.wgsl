@@ -15,6 +15,11 @@ struct LightList {
     len: u32,
 };
 
+struct MaterialConfig {
+  metallic: f32,
+  roughness: f32,
+}
+
 struct InstanceData {
     @location(4) transform_0: vec4<f32>,
     @location(5) transform_1: vec4<f32>,
@@ -27,23 +32,22 @@ struct InstanceData {
 
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<uniform> light: LightList;
-@group(0) @binding(2) var diffuse_sampler: sampler;
-@group(0) @binding(3) var texture: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> material_config: MaterialConfig;
+@group(0) @binding(3) var diffuse_sampler: sampler;
+@group(0) @binding(4) var texture: texture_2d<f32>;
 
 struct Output {
     @builtin(position) position: vec4<f32>,
-    @location(0) color: vec3<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) position_world: vec3<f32>,
-    @location(3) normal_world: vec3<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) position_world: vec3<f32>,
+    @location(2) normal_world: vec3<f32>,
 };
         
 @vertex
 fn vertex_main(
     @location(0) position: vec3<f32>,
-    @location(1) color: vec3<f32>, 
-    @location(2) normal: vec3<f32>, 
-    @location(3) uv: vec2<f32>,
+    @location(1) normal: vec3<f32>, 
+    @location(2) uv: vec2<f32>,
     instance: InstanceData,
 ) -> Output {
     let instance_transform = mat4x4(instance.transform_0, instance.transform_1, instance.transform_2, instance.transform_3);
@@ -53,7 +57,6 @@ fn vertex_main(
 
     var output: Output;
     output.position = camera.projection * camera.view * position_world;
-    output.color = color;
     output.uv = uv;
     output.position_world = position_world.xyz;
     output.normal_world = normalize(instance_normal * normal);
@@ -91,5 +94,5 @@ fn frag_main(in: Output) -> @location(0) vec4<f32> {
     }
   
     let color = textureSample(texture, diffuse_sampler, in.uv).xyz;
-    return vec4((diffuse_light * color) + (specular_light * in.color), 1.0);
+    return vec4((diffuse_light * color) + specular_light, 1.0);
 }
