@@ -31,6 +31,8 @@ pub fn build(b: *std.Build) !void {
     mach.link(b, exe, &exe.root_module);
     mach.addPaths(&exe.root_module);
 
+    b.installArtifact(exe);
+
     const run = b.addRunArtifact(exe);
     if (b.args) |args| run.addArgs(args);
 

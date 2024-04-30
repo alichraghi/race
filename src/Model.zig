@@ -17,7 +17,7 @@ const vec4 = math.vec4;
 const Model = @This();
 
 pub const Mesh = struct {
-    material: u32,
+    material: ?u32,
     vertex_buf: *gpu.Buffer,
     index_buf: ?*gpu.Buffer,
     vertex_count: u32,
@@ -25,37 +25,15 @@ pub const Mesh = struct {
 };
 
 pub const Material = struct {
-    id: u32,
+    name: []const u8,
     texture: Texture,
     normal: ?Texture = null,
-    metallic: f32 = 0,
     roughness: f32 = 0,
 };
 
+name: []const u8,
 meshes: []Mesh,
 materials: []Material,
-
-// fn createMesh(vertices: []const shaders.Vertex, indices: ?[]const u32, material: u32) Mesh {
-//     // const index_buf, const index_count: u32 = if (indices) |_| blk: {
-//     //     const index_buf = core.device.createBuffer(&.{
-//     //         .usage = .{ .index = true },
-//     //         .size = @sizeOf(u32) * indices.?.len,
-//     //         .mapped_at_creation = .true,
-//     //     });
-//     //     const index_mapped = index_buf.getMappedRange(u32, 0, indices.?.len);
-//     //     @memcpy(index_mapped.?, indices.?[0..]);
-//     //     index_buf.unmap();
-//     //     break :blk .{ index_buf, @intCast(indices.?.len) };
-//     // } else .{ null, 0 };
-
-//     return .{
-//         .material = material,
-//         .vertex_buf = vertex_buf,
-//         .vertex_count = @intCast(vertices.len),
-//         .index_buf = index_buf,
-//         .index_count = index_count,
-//     };
-// }
 
 pub fn initFromFile(path: []const u8) !Model {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -71,162 +49,130 @@ pub fn initFromFile(path: []const u8) !Model {
     return error.UnknownFormat;
 }
 
-const M3D_UNDEF: u32 = 0xffffffff; // TODO
-
-const m3dp_Kd: c_int = 0;
-const m3dp_Ka: c_int = 1;
+// TODO
+const M3D_UNDEF: u32 = 0xFFFFFFFF;
 const m3dp_Ks: c_int = 2;
-const m3dp_Ns: c_int = 3;
-const m3dp_Ke: c_int = 4;
 const m3dp_Pr: c_int = 64;
-const m3dp_Pm: c_int = 65;
-const m3dp_Ps: c_int = 66;
 const m3dp_map_Kd: c_int = 128;
-const m3dp_map_Ka: c_int = 129;
-const m3dp_map_Ks: c_int = 130;
-const m3dp_map_Ns: c_int = 131;
-const m3dp_map_Ke: c_int = 132;
-const m3dp_map_Tf: c_int = 133;
 const m3dp_map_Km: c_int = 134;
-const m3dp_map_D: c_int = 135;
-const m3dp_map_N: c_int = 136;
-const m3dp_map_Pr: c_int = 192;
-const m3dp_map_Pm: c_int = 193;
-const m3dp_map_Ps: c_int = 194;
-const m3dp_map_Ni: c_int = 195;
-const m3dp_map_Nt: c_int = 196;
 
 pub fn initFromM3D(data: [:0]const u8) !Model {
     const m3d = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
     defer m3d.deinit();
 
-    const mesh_count = @max(m3d.handle.nummaterial, 1);
+    // Count Meshes
+    var mesh_count: u32 = 0;
+    var last_material = @as(u32, 0) -% 2;
+    for (m3d.handle.face[0..m3d.handle.numface]) |face| {
+        if (last_material != face.materialid) {
+            last_material = face.materialid;
+            mesh_count += 1;
+        }
+    }
 
+    // Allocate Meshes/Materials
     var model: Model = .{
+        .name = std.mem.span(m3d.handle.name),
         .meshes = try core.allocator.alloc(Mesh, mesh_count),
         .materials = try core.allocator.alloc(Material, mesh_count),
     };
 
-    const seed_base: u32 = std.hash.XxHash32.hash(123, std.mem.span(m3d.handle.name));
-
-    var l: u32 = 0;
-    var k: i32 = -1;
-    var mi: i32 = -2;
-    for (m3d.handle.face[0..m3d.handle.numface]) |face| {
-        if (mi != face.materialid) {
-            std.debug.assert(k < mesh_count);
-            k += 1;
-
-            mi = @intCast(face.materialid);
-
-            l = 0;
-            for (0..m3d.handle.numface) |_| {
-                if (mi != face.materialid) break;
-                l += 1;
-            }
-
-            const vertex_count = l * 3;
-            model.meshes[@intCast(k)] = .{
-                .material = @intCast(mi),
-                .vertex_buf = core.device.createBuffer(&.{
-                    .usage = .{ .vertex = true },
-                    .size = @sizeOf(shaders.Vertex) * vertex_count,
-                    .mapped_at_creation = .true,
-                }),
-                .index_buf = null,
-                .vertex_count = vertex_count,
-                .index_count = 0,
-            };
-            l = 0;
+    var face_index: u32 = 0;
+    for (model.meshes[0..mesh_count]) |*mesh| {
+        // Count Mesh faces
+        var face_count: u32 = 0;
+        last_material = m3d.handle.face[face_index].materialid;
+        for (m3d.handle.face[face_index..m3d.handle.numface]) |face| {
+            if (last_material != face.materialid) break;
+            face_count += 1;
         }
+        const vertex_count = face_count * 3;
 
-        // Process meshes per material, add triangles
+        // Load Vertex attributes
+        const vertex_buf = core.device.createBuffer(&.{
+            .usage = .{ .vertex = true },
+            .size = @sizeOf(shaders.Vertex) * vertex_count,
+            .mapped_at_creation = .true,
+        });
+        for (m3d.handle.face[face_index..][0..face_count], 0..) |face, i| {
+            const vertices = vertex_buf.getMappedRange(
+                shaders.Vertex,
+                @sizeOf(shaders.Vertex) * i * 3,
+                3,
+            ).?;
 
-        const vertex = model.meshes[@intCast(k)].vertex_buf.getMappedRange(shaders.Vertex, @sizeOf(shaders.Vertex) * l * 3, 3).?;
-        vertex[0].position = vec3(
-            m3d.handle.vertex[face.vertex[0]].x,
-            m3d.handle.vertex[face.vertex[0]].y,
-            m3d.handle.vertex[face.vertex[0]].z,
-        ).mulScalar(m3d.scale());
-        vertex[1].position = vec3(
-            m3d.handle.vertex[face.vertex[1]].x,
-            m3d.handle.vertex[face.vertex[1]].y,
-            m3d.handle.vertex[face.vertex[1]].z,
-        ).mulScalar(m3d.scale());
-        vertex[2].position = vec3(
-            m3d.handle.vertex[face.vertex[2]].x,
-            m3d.handle.vertex[face.vertex[2]].y,
-            m3d.handle.vertex[face.vertex[2]].z,
-        ).mulScalar(m3d.scale());
+            for (vertices, face.vertex, face.normal, face.texcoord) |*vertex, position, normal, uv| {
+                vertex.position = vec3(
+                    m3d.handle.vertex[position].x,
+                    m3d.handle.vertex[position].y,
+                    m3d.handle.vertex[position].z,
+                ).mulScalar(m3d.scale());
 
-        if (face.texcoord[0] != M3D_UNDEF) {
-            for (0..3) |i| {
-                if (m3d.handle.tmap != null and face.texcoord[i] < m3d.handle.numtmap) {
-                    vertex[i].uv = vec2(m3d.handle.tmap[face.texcoord[i]].u, 1 - m3d.handle.tmap[face.texcoord[i]].v);
-                } else {
-                    vertex[i].uv = vec2(0, 0);
+                if (face.normal[0] != M3D_UNDEF) {
+                    vertex.normal = vec3(
+                        m3d.handle.vertex[normal].x,
+                        m3d.handle.vertex[normal].y,
+                        m3d.handle.vertex[normal].z,
+                    );
+                }
+
+                if (face.texcoord[0] != M3D_UNDEF) {
+                    if (m3d.handle.tmap != null and uv < m3d.handle.numtmap) {
+                        vertex.uv = vec2(m3d.handle.tmap[uv].u, 1 - m3d.handle.tmap[uv].v);
+                    } else {
+                        vertex.uv = vec2(0, 0);
+                    }
                 }
             }
         }
 
-        if (face.normal[0] != M3D_UNDEF) {
-            vertex[0].normal = vec3(m3d.handle.vertex[face.normal[0]].x, m3d.handle.vertex[face.normal[0]].y, m3d.handle.vertex[face.normal[0]].z);
-            vertex[1].normal = vec3(m3d.handle.vertex[face.normal[0]].x, m3d.handle.vertex[face.normal[0]].y, m3d.handle.vertex[face.normal[0]].z);
-            vertex[2].normal = vec3(m3d.handle.vertex[face.normal[0]].x, m3d.handle.vertex[face.normal[0]].y, m3d.handle.vertex[face.normal[0]].z);
-        }
+        // Load Material
+        const material_id = m3d.handle.face[face_index].materialid;
+        if (material_id != M3D_UNDEF) {
+            const material = m3d.handle.material[material_id];
+            model.materials[material_id] = .{
+                .name = std.mem.span(material.name),
+                .texture = undefined,
+            };
 
-        l += 1;
-    }
-
-    // Load materials
-    for (m3d.materials(), 0..) |material, i| {
-        model.materials[i] = .{
-            .id = seed_base +% @as(u32, @intCast(i)),
-            .texture = undefined,
-        };
-
-        for (material.prop[0..material.numprop]) |prop| {
-            std.debug.print("\ntype: {}, {}\n", .{ prop.type, prop.value.fnum });
-            switch (prop.type) {
-                m3dp_Pm => model.materials[i].metallic = prop.value.fnum,
-                m3dp_Pr => model.materials[i].roughness = prop.value.fnum,
-                m3dp_map_Kd, m3dp_map_Km => {
-                    // TODO: grayscale texture
-                    const texture = blk: {
+            for (material.prop[0..material.numprop]) |prop| {
+                switch (prop.type) {
+                    m3dp_Pr => model.materials[material_id].roughness = prop.value.fnum,
+                    m3dp_map_Kd, m3dp_map_Km => {
                         const m3d_texture = m3d.textures()[prop.value.textureid];
-                        if (m3d_texture.f != 1) {
-                            const size = @as(u32, @intCast(m3d_texture.w)) * m3d_texture.h * m3d_texture.f;
-                            break :blk try Texture.init(
-                                m3d_texture.w,
-                                m3d_texture.h,
-                                switch (m3d_texture.f) {
-                                    4 => .rgba,
-                                    3 => .rgb,
-                                    else => unreachable,
-                                },
-                                m3d_texture.d[0..size],
-                            );
+                        const size = @as(u32, @intCast(m3d_texture.w)) * m3d_texture.h * m3d_texture.f;
+                        const texture = try Texture.init(
+                            m3d_texture.w,
+                            m3d_texture.h,
+                            switch (m3d_texture.f) {
+                                4 => .rgba,
+                                3 => .rgb,
+                                else => unreachable,
+                            },
+                            m3d_texture.d[0..size],
+                        );
+
+                        switch (prop.type) {
+                            m3dp_map_Kd => model.materials[material_id].texture = texture,
+                            m3dp_map_Km => model.materials[material_id].normal = texture,
+                            else => unreachable,
                         }
-
-                        std.log.err("oh no. fix this", .{});
-                        // TODO: cache this
-                        break :blk Texture.initFromFile("assets/missing.png") catch unreachable;
-                    };
-
-                    switch (prop.type) {
-                        m3dp_map_Kd => model.materials[i].texture = texture,
-                        m3dp_map_Km => model.materials[i].normal = texture,
-                        else => unreachable,
-                    }
-                },
-                else => {},
+                    },
+                    else => {},
+                }
             }
         }
-    }
 
-    for (model.meshes) |mesh| {
-        mesh.vertex_buf.unmap();
-        if (mesh.index_buf) |index_buf| index_buf.unmap();
+        // Finalize Mesh
+        vertex_buf.unmap();
+        mesh.* = .{
+            .material = if (material_id == M3D_UNDEF) null else material_id,
+            .vertex_buf = vertex_buf,
+            .index_buf = null,
+            .vertex_count = vertex_count,
+            .index_count = 0,
+        };
+        face_index += face_count;
     }
 
     return model;

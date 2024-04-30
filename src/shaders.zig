@@ -105,7 +105,6 @@ pub const LightListUniform = extern struct {
 };
 
 pub const MaterialConfig = extern struct {
-    metallic: f32,
     roughness: f32,
-    _padding: [248]u8 = undefined, // TODO: use limits api
+    _padding: [252]u8 = undefined, // TODO: use limits api
 };

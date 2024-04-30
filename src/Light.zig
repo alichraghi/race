@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const mach = @import("mach");
 const Camera = @import("Camera.zig");
-const Game = @import("Game.zig");
+const Renderer = @import("Renderer.zig");
 const math = @import("math.zig");
 const shaders = @import("shaders.zig");
 const gpu = mach.gpu;
@@ -139,13 +139,13 @@ pub fn deinit(light: *Mod) !void {
     state.light_uniform_buf.release();
 }
 
-pub fn render(light: *Mod, game: *Game.Mod, camera: Camera) !void {
+pub fn render(light: *Mod, renderer: *Renderer.Mod, camera: Camera) !void {
     const state = light.state();
-    const game_state = game.state();
+    const renderer_state = renderer.state();
 
     if (!state.show_points) return;
 
-    game_state.pass.setPipeline(state.pipeline);
+    renderer_state.pass.setPipeline(state.pipeline);
 
     mach.core.queue.writeBuffer(
         state.camera_uniform_buf,
@@ -174,8 +174,8 @@ pub fn render(light: *Mod, game: *Game.Mod, camera: Camera) !void {
                     .radius = radius,
                 }},
             );
-            game_state.pass.setBindGroup(0, state.bind_group, &.{buffer_offset});
-            game_state.pass.draw(6, 1, 0, 0);
+            renderer_state.pass.setBindGroup(0, state.bind_group, &.{buffer_offset});
+            renderer_state.pass.draw(6, 1, 0, 0);
         }
     }
 }
