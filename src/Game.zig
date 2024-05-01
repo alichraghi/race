@@ -93,7 +93,7 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod, core: *Core.Mod)
     try renderer.set(samurai_instanced, .model, state.models.get(.samurai));
     try renderer.set(samurai_instanced, .instances, try mach.core.allocator.dupe(Renderer.Transform, &.{
         .{
-            .translation = vec3(0, 0, 0),
+            .translation = vec3(0, 1, -2.5),
             .rotation = vec3(0, 0, 0),
             .scale = vec3(0.5, 0.5, 0.5),
         },
@@ -169,7 +169,7 @@ fn tickCamera(game: *Mod) !void {
     const state: *Game = game.state();
 
     // Position
-    const move_speed = 5 * mach.core.delta_time;
+    const move_speed = 2 * mach.core.delta_time;
     const camera_movement = state.camera_front
         .mulScalar(state.camera_dir.z()) // Forward-Backward
         .add(&math.normalize(state.camera_front.cross(&math.up)).mulScalar(state.camera_dir.x())) // Right-Left
@@ -182,7 +182,7 @@ fn tickCamera(game: *Mod) !void {
     state.main_camera.projection = Camera.perspective(
         math.pi / 4.0, // 45deg
         w / h,
-        0.1,
+        0.01,
         100,
     );
 

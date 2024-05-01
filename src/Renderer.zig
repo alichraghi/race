@@ -136,8 +136,23 @@ pub fn init(state: *Renderer) !void {
     state.default_material = .{
         .name = "Default Material",
         .texture = try Texture.initFromFile("assets/prototype-textures/Dark/texture_02.png"),
+        .normal = try Texture.init(1, 1, .rgba, &.{ 128, 128, 255, 255 }),
     };
     state.encoder = mach.core.device.createCommandEncoder(&.{});
+}
+
+fn deinit(renderer: *Mod) !void {
+    const state: *Renderer = renderer.state();
+
+    state.shader.release();
+    state.camera_uniform.release();
+    state.lights_uniform.release();
+    for (state.pipelines.values()) |pipeline| {
+        pipeline.pipeline.release();
+        pipeline.bind_group.release();
+    }
+    state.pipelines.deinit(mach.core.allocator);
+    state.default_material.deinit();
 }
 
 pub fn framebufferResize(state: *Renderer, size: mach.core.Size) void {
@@ -216,6 +231,7 @@ fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
                 gpu.BindGroupLayout.Entry.buffer(2, .{ .fragment = true }, .uniform, true, 0),
                 gpu.BindGroupLayout.Entry.sampler(3, .{ .fragment = true }, .filtering),
                 gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .float, .dimension_2d, false),
+                gpu.BindGroupLayout.Entry.texture(5, .{ .fragment = true }, .float, .dimension_2d, false),
             },
         }),
     );
@@ -230,6 +246,7 @@ fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
                 gpu.BindGroup.Entry.buffer(2, state.material_params_uniform, 0, @sizeOf(shaders.MaterialParams)),
                 gpu.BindGroup.Entry.sampler(3, state.sampler),
                 gpu.BindGroup.Entry.textureView(4, config.material.texture.view),
+                gpu.BindGroup.Entry.textureView(5, (config.material.normal orelse state.default_material.normal.?).view),
             },
         }),
     );
@@ -274,19 +291,6 @@ fn getPipeline(state: *Renderer, config: Pipeline.Config) !*Pipeline {
     return gop.value_ptr;
 }
 
-fn deinit(renderer: *Mod) !void {
-    const state: *Renderer = renderer.state();
-
-    state.shader.release();
-    state.camera_uniform.release();
-    state.lights_uniform.release();
-    for (state.pipelines.values()) |pipeline| {
-        pipeline.pipeline.release();
-        pipeline.bind_group.release();
-    }
-    state.pipelines.deinit(mach.core.allocator);
-}
-
 fn render(renderer: *Mod, camera: Camera) !void {
     const state: *Renderer = renderer.state();
     const game_state: *Renderer = renderer.state();
@@ -320,7 +324,7 @@ fn render(renderer: *Mod, camera: Camera) !void {
         state.lights_uniform,
         0,
         &[_]shaders.LightListUniform{.{
-            .ambient_color = vec4(1, 1, 1, 0.2),
+            .ambient = vec4(0.2, 0.2, 0.2, 0.2),
             .lights = lights.buffer,
             .len = lights.len,
         }},
@@ -361,7 +365,10 @@ fn render(renderer: *Mod, camera: Camera) !void {
             mach.core.queue.writeBuffer(
                 state.material_params_uniform,
                 material_params_offset,
-                &[_]shaders.MaterialParams{.{ .roughness = material.roughness }},
+                &[_]shaders.MaterialParams{.{
+                    .metallic = material.metallic,
+                    .roughness = material.roughness,
+                }},
             );
 
             game_state.pass.setPipeline(pipeline.pipeline);

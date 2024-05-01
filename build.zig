@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) !void {
     build_options.addOption(bool, "use_sysgpu", use_sysgpu);
 
     const exe = b.addExecutable(.{
-        .name = "car_race",
+        .name = "blood",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,

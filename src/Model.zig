@@ -28,13 +28,12 @@ pub const Material = struct {
     name: []const u8,
     texture: Texture,
     normal: ?Texture = null,
+    metallic: f32 = 0,
     roughness: f32 = 0,
 
     pub fn deinit(material: Material) void {
-        _ = material;
-        // TODO: General protection exception
-        // material.texture.deinit();
-        // if (material.normal) |normal| normal.deinit();
+        material.texture.deinit();
+        if (material.normal) |normal| normal.deinit();
     }
 };
 
@@ -60,6 +59,7 @@ pub fn initFromFile(path: []const u8) !Model {
 const M3D_UNDEF: u32 = 0xFFFFFFFF;
 const m3dp_Ks: c_int = 2;
 const m3dp_Pr: c_int = 64;
+const m3dp_Pm: c_int = 65;
 const m3dp_map_Kd: c_int = 128;
 const m3dp_map_Km: c_int = 134;
 
@@ -81,7 +81,7 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
     var model: Model = .{
         .name = std.mem.span(m3d.handle.name),
         .meshes = try core.allocator.alloc(Mesh, mesh_count),
-        .materials = try core.allocator.alloc(Material, mesh_count),
+        .materials = try core.allocator.alloc(Material, m3d.handle.nummaterial),
     };
 
     var face_index: u32 = 0;
@@ -102,7 +102,7 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
             .mapped_at_creation = .true,
         });
         for (m3d.handle.face[face_index..][0..face_count], 0..) |face, i| {
-            const vertices = vertex_buf.getMappedRange(
+            const vertices: []shaders.Vertex = vertex_buf.getMappedRange(
                 shaders.Vertex,
                 @sizeOf(shaders.Vertex) * i * 3,
                 3,
@@ -121,6 +121,9 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
                         m3d.handle.vertex[normal].y,
                         m3d.handle.vertex[normal].z,
                     );
+                } else {
+                    // TODO: default_normal_value constant
+                    vertex.normal = vec3(0.5, 0.5, 1);
                 }
 
                 if (face.texcoord[0] != M3D_UNDEF) {
@@ -129,7 +132,38 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
                     } else {
                         vertex.uv = vec2(0, 0);
                     }
+                } else {
+                    vertex.uv = vec2(0, 0);
                 }
+            }
+
+            // Calculate Tangets
+            for (vertices) |*v| {
+                const x1 = vertices[1].position.x() - vertices[0].position.x();
+                const y1 = vertices[1].position.y() - vertices[0].position.y();
+                const z1 = vertices[1].position.z() - vertices[0].position.z();
+                const x2 = vertices[2].position.x() - vertices[0].position.x();
+                const y2 = vertices[2].position.y() - vertices[0].position.y();
+                const z2 = vertices[2].position.z() - vertices[0].position.z();
+
+                const s1 = vertices[1].uv.x() - vertices[0].uv.x();
+                const t1 = vertices[1].uv.y() - vertices[0].uv.y();
+                const s2 = vertices[2].uv.x() - vertices[0].uv.x();
+                const t2 = vertices[2].uv.y() - vertices[0].uv.y();
+
+                const div = s1 * t2 - s2 * t1;
+                const r = if (div == 0) 0 else 1 / div;
+
+                const sdir = vec3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
+                const tdir = vec3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
+
+                const tangent = v.normal.normalize(0).cross(&sdir).normalize(0).cross(&v.normal);
+                v.tangent = vec4(
+                    tangent.x(),
+                    tangent.y(),
+                    tangent.z(),
+                    if (v.normal.cross(&tangent).dot(&tdir) < 0) -1 else 1,
+                );
             }
         }
 
@@ -144,6 +178,7 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
 
             for (material.prop[0..material.numprop]) |prop| {
                 switch (prop.type) {
+                    m3dp_Pm => model.materials[material_id].metallic = prop.value.fnum,
                     m3dp_Pr => model.materials[material_id].roughness = prop.value.fnum,
                     m3dp_map_Kd, m3dp_map_Km => {
                         const m3d_texture = m3d.textures()[prop.value.textureid];

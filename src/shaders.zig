@@ -22,6 +22,7 @@ pub const Vertex = extern struct {
     position: Vec3,
     normal: Vec3,
     uv: Vec2,
+    tangent: Vec4,
 
     pub const attributes = [_]gpu.VertexAttribute{
         .{
@@ -38,6 +39,11 @@ pub const Vertex = extern struct {
             .format = .float32x2,
             .offset = @offsetOf(Vertex, "uv"),
             .shader_location = 2,
+        },
+        .{
+            .format = .float32x4,
+            .offset = @offsetOf(Vertex, "tangent"),
+            .shader_location = 3,
         },
     };
 
@@ -99,11 +105,12 @@ pub const InstanceData = extern struct {
 
 pub const max_lights = 10;
 pub const LightListUniform = extern struct {
-    ambient_color: Vec4,
+    ambient: Vec4,
     lights: [max_lights]LightUniform,
     len: u32,
 };
 
 pub const MaterialParams = extern struct {
+    metallic: f32,
     roughness: f32,
 };

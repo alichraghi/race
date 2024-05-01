@@ -25,6 +25,7 @@ pub fn init(width: u32, height: u32, format: Format, pixels: []const u8) !Textur
     const size = gpu.Extent3D{ .width = width, .height = height };
     const data_layout = gpu.Texture.DataLayout{ .bytes_per_row = width * 4, .rows_per_image = height };
 
+    // NOTE: We don't release texture here, because otherwise view.release() will free it again
     const texture = core.device.createTexture(&.{
         .size = size,
         .format = .rgba8_unorm,
