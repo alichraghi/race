@@ -29,6 +29,13 @@ pub const Material = struct {
     texture: Texture,
     normal: ?Texture = null,
     roughness: f32 = 0,
+
+    pub fn deinit(material: Material) void {
+        _ = material;
+        // TODO: General protection exception
+        // material.texture.deinit();
+        // if (material.normal) |normal| normal.deinit();
+    }
 };
 
 name: []const u8,
@@ -186,9 +193,7 @@ pub fn deinit(model: Model) void {
         }
     }
 
-    for (model.materials) |material| {
-        material.texture.release();
-    }
+    for (model.materials) |material| material.deinit();
 
     core.allocator.free(model.meshes);
     core.allocator.free(model.materials);

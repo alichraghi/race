@@ -25,11 +25,9 @@ pub const components = .{
     .instances = .{ .type = []Transform },
 };
 
-pub const global_events = .{
+pub const events = .{
+    .deinit = .{ .handler = deinit },
     .framebufferResize = .{ .handler = framebufferResize },
-};
-
-pub const local_events = .{
     .render = .{ .handler = render },
     .beginRender = .{ .handler = beginRender },
     .endRender = .{ .handler = endRender },
@@ -45,8 +43,9 @@ depth_view: *gpu.TextureView,
 pipelines: std.ArrayHashMapUnmanaged(Pipeline.Config, Pipeline, Pipeline.Config.ArrayHashContext, false) = .{},
 shader: *gpu.ShaderModule,
 camera_uniform: *gpu.Buffer,
-light_list_uniform: *gpu.Buffer,
+lights_uniform: *gpu.Buffer,
 instance_buffer: *gpu.Buffer,
+sampler: *gpu.Sampler,
 material_params_uniform: *gpu.Buffer,
 material_params_uniform_stride: u32,
 default_material: Model.Material,
@@ -92,6 +91,11 @@ const Pipeline = struct {
             }
         };
     };
+
+    fn deinit(pipeline: Pipeline) void {
+        pipeline.pipeline.release();
+        pipeline.bind_group.release();
+    }
 };
 
 const max_scene_objects = 1024;
@@ -113,7 +117,7 @@ pub fn init(state: *Renderer) !void {
         .size = @sizeOf(shaders.CameraUniform),
         .mapped_at_creation = .false,
     });
-    state.light_list_uniform = mach.core.device.createBuffer(&.{
+    state.lights_uniform = mach.core.device.createBuffer(&.{
         .usage = .{ .uniform = true, .copy_dst = true },
         .size = @sizeOf(shaders.LightListUniform),
         .mapped_at_creation = .false,
@@ -128,6 +132,7 @@ pub fn init(state: *Renderer) !void {
         .size = @sizeOf(shaders.MaterialParams) * max_materials,
         .mapped_at_creation = .false,
     });
+    state.sampler = mach.core.device.createSampler(&.{ .mag_filter = .linear, .min_filter = .linear });
     state.default_material = .{
         .name = "Default Material",
         .texture = try Texture.initFromFile("assets/prototype-textures/Dark/texture_02.png"),
@@ -135,9 +140,15 @@ pub fn init(state: *Renderer) !void {
     state.encoder = mach.core.device.createCommandEncoder(&.{});
 }
 
-fn framebufferResize(renderer: *Mod, size: mach.core.Size) void {
-    const state: *Renderer = renderer.state();
+pub fn framebufferResize(state: *Renderer, size: mach.core.Size) void {
+    state.depth_view.release();
+    state.depth_texture.release();
     state.createTextures(size);
+
+    for (state.pipelines.keys(), state.pipelines.values()) |config, *pipeline| {
+        pipeline.deinit();
+        pipeline.* = state.createPipeline(config);
+    }
 }
 
 fn beginRender(renderer: *Mod) !void {
@@ -148,7 +159,7 @@ fn beginRender(renderer: *Mod) !void {
 
     const color_attachment = gpu.RenderPassColorAttachment{
         .view = back_buffer_view,
-        .clear_value = .{ .r = 0.09375, .g = 0.09375, .b = 0.09375, .a = 0 },
+        .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 0 },
         .load_op = .clear,
         .store_op = .store,
     };
@@ -165,7 +176,7 @@ fn beginRender(renderer: *Mod) !void {
     state.pass = state.encoder.beginRenderPass(&pass_info);
 }
 
-fn endRender(renderer: *Mod) !void {
+fn endRender(renderer: *Mod, core: *mach.Core.Mod) !void {
     const state: *Renderer = renderer.state();
 
     state.pass.end();
@@ -178,7 +189,7 @@ fn endRender(renderer: *Mod) !void {
 
     // Prepare for next pass
     state.encoder = mach.core.device.createCommandEncoder(&.{});
-    mach.core.swap_chain.present();
+    core.send(.present_frame, .{});
 }
 
 fn createTextures(state: *Renderer, screen_size: mach.core.Size) void {
@@ -215,9 +226,9 @@ fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
             .layout = bind_group_layout,
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, state.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
-                gpu.BindGroup.Entry.buffer(1, state.light_list_uniform, 0, @sizeOf(shaders.LightListUniform)),
+                gpu.BindGroup.Entry.buffer(1, state.lights_uniform, 0, @sizeOf(shaders.LightListUniform)),
                 gpu.BindGroup.Entry.buffer(2, state.material_params_uniform, 0, @sizeOf(shaders.MaterialParams)),
-                gpu.BindGroup.Entry.sampler(3, config.material.texture.sampler),
+                gpu.BindGroup.Entry.sampler(3, state.sampler),
                 gpu.BindGroup.Entry.textureView(4, config.material.texture.view),
             },
         }),
@@ -264,11 +275,11 @@ fn getPipeline(state: *Renderer, config: Pipeline.Config) !*Pipeline {
 }
 
 fn deinit(renderer: *Mod) !void {
-    const state = renderer.state();
+    const state: *Renderer = renderer.state();
 
     state.shader.release();
     state.camera_uniform.release();
-    state.light_uniform.release();
+    state.lights_uniform.release();
     for (state.pipelines.values()) |pipeline| {
         pipeline.pipeline.release();
         pipeline.bind_group.release();
@@ -306,7 +317,7 @@ fn render(renderer: *Mod, camera: Camera) !void {
     };
 
     mach.core.queue.writeBuffer(
-        state.light_list_uniform,
+        state.lights_uniform,
         0,
         &[_]shaders.LightListUniform{.{
             .ambient_color = vec4(1, 1, 1, 0.2),

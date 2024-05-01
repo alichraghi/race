@@ -21,7 +21,7 @@ pub const components = .{
     .radius = .{ .type = f32 },
 };
 
-pub const local_events = .{
+pub const events = .{
     .render = .{ .handler = render },
 };
 

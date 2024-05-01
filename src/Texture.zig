@@ -6,7 +6,6 @@ const gpu = mach.gpu;
 
 const Texture = @This();
 
-sampler: *gpu.Sampler,
 view: *gpu.TextureView,
 
 pub fn initFromFile(path: []const u8) !Texture {
@@ -43,17 +42,18 @@ pub fn init(width: u32, height: u32, format: Format, pixels: []const u8) !Textur
         .rgb => {
             const rgb_pixels = @as([*]const [3]u8, @ptrCast(pixels))[0 .. pixels.len / 3];
             const rgba_pixels = try rgbToRgba(rgb_pixels);
+            defer core.allocator.free(rgba_pixels);
             core.queue.writeTexture(&.{ .texture = texture }, &data_layout, &size, rgba_pixels);
         },
     }
 
-    const sampler = core.device.createSampler(&.{ .mag_filter = .linear, .min_filter = .linear });
     const view = texture.createView(&gpu.TextureView.Descriptor{ .label = "TextureCreator" });
 
-    return .{
-        .sampler = sampler,
-        .view = view,
-    };
+    return .{ .view = view };
+}
+
+pub fn deinit(texture: Texture) void {
+    texture.view.release();
 }
 
 pub fn initFromImage(data: []const u8) !Texture {

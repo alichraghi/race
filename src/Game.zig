@@ -13,30 +13,34 @@ const vec4 = math.vec4;
 
 const Game = @This();
 
+models: std.EnumArray(ModelName, Model),
+
 main_camera: Camera,
-
-prev_mouse_pos: Vec3,
-
 camera_pos: Vec3,
 camera_rot: Vec3,
 camera_dir: Vec3,
 camera_front: Vec3,
 
-pub const name = .game;
+last_mouse_pos: Vec3,
+
+pub const name = .app;
 pub const Mod = mach.Mod(Game);
 
-pub const global_events = .{
+pub const events = .{
     .init = .{ .handler = init },
+    .deinit = .{ .handler = deinit },
     .tick = .{ .handler = tick },
+    .processEvents = .{ .handler = processEvents },
+    .tickCamera = .{ .handler = tickCamera },
     .framebufferResize = .{ .handler = fn (mach.core.Size) void },
 };
 
-pub const local_events = .{
-    .processEvents = .{ .handler = processEvents },
-    .tickCamera = .{ .handler = tickCamera },
+const ModelName = enum {
+    samurai,
+    cube,
 };
 
-fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
+fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod, core: *Core.Mod) !void {
     mach.core.setCursorMode(.disabled);
 
     // Init modules
@@ -48,8 +52,9 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
         .depth_view = undefined,
         .shader = undefined,
         .camera_uniform = undefined,
-        .light_list_uniform = undefined,
+        .lights_uniform = undefined,
         .instance_buffer = undefined,
+        .sampler = undefined,
         .material_params_uniform = undefined,
         .material_params_uniform_stride = undefined,
         .default_material = undefined,
@@ -61,19 +66,31 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
         .light_uniform_stride = undefined,
         .bind_group = undefined,
     });
+    game.init(.{
+        .models = undefined,
+        .main_camera = undefined,
+        .last_mouse_pos = undefined,
+        .camera_pos = undefined,
+        .camera_rot = undefined,
+        .camera_dir = undefined,
+        .camera_front = undefined,
+    });
     try renderer.state().init();
     try light.state().init(renderer.state());
 
-    // Objects
-    const samurai_model = try Model.initFromFile("assets/samurai.m3d");
-    const cube_model = try Model.initFromFile("assets/cube.m3d");
+    const state: *Game = game.state();
 
-    const samurai = try renderer.newEntity();
-    try renderer.set(samurai, .model, cube_model);
-    try renderer.set(samurai, .transform, .{});
+    // Load Models
+    state.models.set(.samurai, try Model.initFromFile("assets/samurai.m3d"));
+    state.models.set(.cube, try Model.initFromFile("assets/cube.m3d"));
+
+    // Create Objects
+    const cube = try renderer.newEntity();
+    try renderer.set(cube, .model, state.models.get(.cube));
+    try renderer.set(cube, .transform, .{});
 
     const samurai_instanced = try renderer.newEntity();
-    try renderer.set(samurai_instanced, .model, samurai_model);
+    try renderer.set(samurai_instanced, .model, state.models.get(.samurai));
     try renderer.set(samurai_instanced, .instances, try mach.core.allocator.dupe(Renderer.Transform, &.{
         .{
             .translation = vec3(0, 0, 0),
@@ -109,27 +126,32 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
     try light.set(light_red, .radius, 0.05);
 
     // Camera
-    const main_camera = Camera{};
-    const mouse_pos = mach.core.mousePosition();
-    const camera_rot = vec3(0, math.pi / 2.0, 0); // 90deg
-    const camera_front = math.worldSpaceDirection(camera_rot);
+    state.main_camera = Camera{};
+    state.camera_pos = vec3(0, 0, -6);
+    state.camera_rot = vec3(0, math.pi / 2.0, 0); // 90deg
+    state.camera_front = math.worldSpaceDirection(state.camera_rot);
+    state.camera_dir = vec3(0, 0, 0);
 
-    game.init(.{
-        .main_camera = main_camera,
-        .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
-        .camera_pos = vec3(0, 0, -6),
-        .camera_rot = camera_rot,
-        .camera_dir = vec3(0, 0, 0),
-        .camera_front = camera_front,
-    });
+    // Misc
+    const mouse_pos = mach.core.mousePosition();
+    state.last_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0);
+
+    core.send(.start, .{});
 }
 
-fn deinit(game: *Mod, renderer: *Renderer.Mod) !void {
+fn deinit(game: *Mod, renderer: *Renderer.Mod, core: *Core.Mod) !void {
     const state: *Game = game.state();
 
     renderer.send(.deinit, .{});
-    state.depth_texture.release();
-    state.depth_view.release();
+    core.send(.deinit, .{});
+
+    for (state.models.values) |model| model.deinit();
+    var iter = game.entities.query(.{ .all = &.{.{ .renderer = &.{.instances} }} });
+    while (iter.next()) |archetype| for (
+        archetype.slice(.renderer, .instances),
+    ) |instances| {
+        mach.core.allocator.free(instances);
+    };
 }
 
 fn tick(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
@@ -138,12 +160,6 @@ fn tick(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
     game.send(.processEvents, .{});
     game.send(.tickCamera, .{});
     renderer.send(.beginRender, .{});
-
-    // rotate wrench
-    // var trans = renderer.get(state.wrench, .transforms).?[0];
-    // trans.rotation = trans.rotation.add(&vec3(0, 0.01, 0));
-    // try renderer.set(state.wrench, .transforms, mach trans);
-
     renderer.send(.render, .{state.main_camera});
     light.send(.render, .{state.main_camera});
     renderer.send(.endRender, .{});
@@ -178,8 +194,9 @@ fn tickCamera(game: *Mod) !void {
     );
 }
 
-fn processEvents(game: *Mod, core: *Core.Mod) !void {
+fn processEvents(game: *Mod, core: *Core.Mod, renderer: *Renderer.Mod) !void {
     const state: *Game = game.state();
+    const renderer_state: *Renderer = renderer.state();
 
     var iter = mach.core.pollEvents();
     while (iter.next()) |event| {
@@ -210,13 +227,13 @@ fn processEvents(game: *Mod, core: *Core.Mod) !void {
             .mouse_motion => |m| {
                 const rot_speed = mach.core.delta_time * 0.2;
                 const mouse_pos = vec3(@floatCast(-m.pos.y), @floatCast(m.pos.x), 0);
-                const rotation = mouse_pos.sub(&state.prev_mouse_pos);
-                state.prev_mouse_pos = mouse_pos;
+                const rotation = mouse_pos.sub(&state.last_mouse_pos);
+                state.last_mouse_pos = mouse_pos;
                 state.camera_rot = state.camera_rot.add(&rotation.mulScalar(rot_speed));
                 state.camera_front = math.worldSpaceDirection(state.camera_rot);
             },
             .framebuffer_resize => |size| {
-                game.sendGlobal(.framebufferResize, .{size});
+                renderer_state.framebufferResize(size);
             },
             .close => core.send(.exit, .{}),
             else => {},
