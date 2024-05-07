@@ -19,7 +19,6 @@ models: std.EnumArray(ModelName, Model),
 
 main_camera: Camera,
 camera_pos: Vec3,
-camera_rot: Vec3,
 camera_dir: Vec3,
 camera_front: Vec3,
 
@@ -73,7 +72,6 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod, core: *Core.Mod)
         .main_camera = undefined,
         .mouse_pos = undefined,
         .camera_pos = undefined,
-        .camera_rot = undefined,
         .camera_dir = undefined,
         .camera_front = undefined,
     });
@@ -173,27 +171,19 @@ fn tickCamera(game: *Mod) !void {
     const camera_movement = vec3(state.camera_dir.z(), 0, state.camera_dir.x()).mulScalar(move_speed);
     state.camera_pos = state.camera_pos.add(&camera_movement);
 
-    // Projection
+    // Perspective Projection
     // const w: f32 = @floatFromInt(mach.core.descriptor.width);
     // const h: f32 = @floatFromInt(mach.core.descriptor.height);
-    // state.main_camera.projection = math.perspectiveRh(
-    //     math.pi / 4.0, // 45deg
-    //     w / h,
-    //     0.01,
-    //     100,
-    // );
-    state.main_camera.projection = math.orthoRh(
-        5,
-        5,
-        0,
-        100,
-    );
+    // state.main_camera.projection = math.perspectiveRh(math.pi / 4.0, w / h, 0.01, 100);
+
+    // Orthographic Projection
+    state.main_camera.projection = math.orthoRh(5, 5, 0, 100);
 
     // View
     state.main_camera.view = math.lookAtRh(
         state.camera_pos,
         state.camera_pos.add(&state.camera_front),
-        math.up,
+        math.UP,
     );
 }
 

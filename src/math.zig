@@ -10,21 +10,12 @@ const mat4x4 = math.mat4x4;
 
 pub usingnamespace math;
 
-pub const right = vec3(1, 0, 0);
-pub const up = vec3(0, 1, 0);
-pub const front = vec3(0, 0, 1);
+pub const RIGHT = vec3(1, 0, 0);
+pub const UP = vec3(0, 1, 0);
+pub const FRONT = vec3(0, 0, 1);
 
 pub fn normalize(v: Vec3) Vec3 {
     return v.mulScalar(1 / v.len());
-}
-
-// Local Space to World Space direction
-pub fn worldSpaceDirection(local_rotation: Vec3) Vec3 {
-    return normalize(vec3(
-        @cos(local_rotation.y()) * @cos(local_rotation.x()),
-        @sin(local_rotation.x()),
-        @sin(local_rotation.y()) * @cos(local_rotation.x()),
-    ));
 }
 
 pub fn uniformStride(comptime T: type, min_alignment: u32) u32 {
@@ -72,9 +63,9 @@ pub fn transformNormal(rotation: Vec3, scale: Vec3) Mat3x3 {
     );
 }
 
-// pub fn lookAtRh(eyepos: Vec3, focuspos: Vec3, updir: Vec3) Mat4x4 {
-//     return lookToLh(eyepos, eyepos.sub(&focuspos), updir);
-// }
+pub fn lookAtRh(eyepos: Vec3, focuspos: Vec3, updir: Vec3) Mat4x4 {
+    return lookToLh(eyepos, eyepos.sub(&focuspos), updir);
+}
 
 pub fn lookToLh(eyepos: Vec3, eyedir: Vec3, updir: Vec3) Mat4x4 {
     const az = normalize(eyedir);
@@ -98,23 +89,6 @@ pub fn orthoRh(w: f32, h: f32, near: f32, far: f32) Mat4x4 {
     ).transpose();
 }
 
-// pub fn perspectiveRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat4x4 {
-//     std.debug.assert(near > 0 and far > 0);
-//     std.debug.assert(!std.math.approxEqAbs(f32, far, near, 0.001));
-//     std.debug.assert(!std.math.approxEqAbs(f32, aspect, 0, 0.01));
-
-//     const h = @cos(0.5 * fovy) / @sin(0.5 * fovy);
-//     const w = h / aspect;
-//     const r = far / (near - far);
-//     return mat4x4(
-//         &vec4(w, 0, 0, 0),
-//         &vec4(0, h, 0, 0),
-//         &vec4(0, 0, r, r * near),
-//         &vec4(0, 0, -1, 0),
-//     );
-// }
-
-// old
 pub fn perspectiveRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat4x4 {
     const h = 1 / @tan(0.5 * fovy);
     const w = h / aspect;
@@ -124,18 +98,5 @@ pub fn perspectiveRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat4x4 {
         &vec4(0.0, h, 0.0, 0.0),
         &vec4(0.0, 0.0, r, r * near),
         &vec4(0.0, 0.0, -1, 0.0),
-    );
-}
-
-// old
-pub fn lookAtRh(eye: Vec3, dir: Vec3, updir: Vec3) Mat4x4 {
-    const f = normalize(eye.sub(&dir));
-    const s = normalize(updir.cross(&f));
-    const u = f.cross(&s);
-    return mat4x4(
-        &vec4(-s.x(), s.y(), s.z(), -s.dot(&eye)),
-        &vec4(-u.x(), u.y(), u.z(), -u.dot(&eye)),
-        &vec4(-f.x(), f.y(), f.z(), -f.dot(&eye)),
-        &vec4(0, 0, 0, 1),
     );
 }

@@ -30,13 +30,6 @@ struct InstanceData {
     @location(10) normal_2: vec3<f32>,
 };
 
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<uniform> light: LightList;
-@group(0) @binding(2) var<uniform> material_params: MaterialParams;
-@group(0) @binding(3) var texture_sampler: sampler;
-@group(0) @binding(4) var texture: texture_2d<f32>;
-@group(0) @binding(5) var normal_texture: texture_2d<f32>;
-
 struct Output {
     @builtin(position) position: vec4<f32>,
     @location(0) position_world: vec3<f32>,
@@ -45,6 +38,15 @@ struct Output {
     @location(3) bitangent: vec3<f32>,
     @location(4) normal: vec3<f32>,
 };
+
+const PI = radians(180);
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<uniform> light_list: LightList;
+@group(0) @binding(2) var<uniform> material_params: MaterialParams;
+@group(0) @binding(3) var texture_sampler: sampler;
+@group(0) @binding(4) var albedo_texture: texture_2d<f32>;
+@group(0) @binding(5) var normal_texture: texture_2d<f32>;
 
 @vertex
 fn vertex_main(
@@ -72,7 +74,7 @@ fn vertex_main(
 
 @fragment
 fn frag_main(in: Output) -> @location(0) vec4<f32> {
-    let albedo = textureSample(texture, texture_sampler, in.uv).xyz;
+    let albedo = textureSample(albedo_texture, texture_sampler, in.uv).xyz;
 
     let tbn = mat3x3(in.tangent, in.bitangent, in.normal);
     let normal_map = textureSample(normal_texture, texture_sampler, in.uv).xyz * 2.0 - 1.0;
@@ -82,12 +84,11 @@ fn frag_main(in: Output) -> @location(0) vec4<f32> {
     let camera_position_wolrd = vec3(camera.view[0][3], camera.view[1][3], camera.view[2][3]);
     let view_direction = normalize(camera_position_wolrd - in.position_world);
 
-    var surface_reflection = vec3(0.04); 
-    surface_reflection = mix(surface_reflection, albedo, material_params.metallic);
+    let surface_reflection = mix(vec3(0.04), albedo, material_params.metallic);
 
-    var color = albedo * light.ambient.rgb * light.ambient.w;
-    for (var i: u32 = 0; i < light.len; i++) {
-        let light = light.lights[i];
+    var color = albedo * light_list.ambient.rgb * light_list.ambient.w;
+    for (var i: u32 = 0; i < light_list.len; i++) {
+        let light = light_list.lights[i];
 
         // calculate per-light radiance
         let light_dir = normalize(light.position - in.position_world);
@@ -102,66 +103,58 @@ fn frag_main(in: Output) -> @location(0) vec4<f32> {
         let fresnel  = fresnelSchlick(clamp(dot(half_light, view_direction), 0.0, 1.0), surface_reflection);
            
         let numerator    = ndf * geometry * fresnel; 
-        let denominator = 4.0 * max(dot(bumped_normal, view_direction), 0.0) * max(dot(bumped_normal, light_dir), 0.0) + 0.0001; // + 0.0001 to prevent divide by zero
+        // + 0.0001 to prevent divide by zero
+        let denominator = 4.0 * max(dot(bumped_normal, view_direction), 0.0) * max(dot(bumped_normal, light_dir), 0.0) + 0.0001;
         let specular = numerator / denominator;
         
-        // for energy conservation, the diffuse and specular light can't
+        // For energy conservation, the diffuse and specular light can't
         // be above 1.0 (unless the surface emits light); to preserve this
-        // relationship the diffuse component (kD) should equal 1.0 - fresnel.
-        var kD = vec3(1.0) - fresnel;
-        // multiply kD by the inverse metalness such that only non-metals 
+        // relationship the diffuse component should equal 1.0 - fresnel.
+        var diffuse = vec3(1.0) - fresnel;
+        // Multiply diffuse by the inverse metalness such that only non-metals 
         // have diffuse lighting, or a linear blend if partly metal (pure metals
         // have no diffuse light).
-        kD *= 1.0 - material_params.metallic;	  
+        diffuse *= 1.0 - material_params.metallic;	  
 
-        // scale light by NdotL
-        let NdotL = max(dot(bumped_normal, light_dir), 0.0);        
+        // scale light by n_dot_l
+        let n_dot_l = max(dot(bumped_normal, light_dir), 0.0);        
 
         // add to outgoing radiance Lo
-        color += (kD * albedo / PI + specular) * radiance * NdotL;
+        color += (diffuse * albedo / PI + specular) * radiance * n_dot_l;
     }
+
     // HDR tonemapping
     color = color / (color + vec3(1.0));
     // gamma correct
-    color = pow(color, vec3(1.0/2.2)); 
+    color = pow(color, vec3(1.0 / 2.2)); 
 
     return vec4<f32>(color, 1.0);
 }
 
-const PI = 3.14159265359;
-
 fn distributionGGX(normal: vec3<f32>, half_light: vec3<f32>, roughness: f32) -> f32 {
     let a = roughness * roughness;
     let a2 = a * a;
-    let NdotH = max(dot(normal, half_light), 0.0);
-    let NdotH2 = NdotH * NdotH;
-
-    let nom   = a2;
-    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return nom / denom;
+    let n_dot_h = max(dot(normal, half_light), 0.0);
+    let denominator = PI * pow((n_dot_h * n_dot_h) * (a2 - 1.0) + 1.0, 2);
+    return a2 / denominator;
 }
 
-fn geometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
+fn geometrySchlickGGX(n_dot_v: f32, roughness: f32) -> f32 {
     let r = (roughness + 1.0);
-    let k = (r*r) / 8.0;
-
-    let nom   = NdotV;
-    let denom = NdotV * (1.0 - k) + k;
-
-    return nom / denom;
+    let k = (r * r) / 8.0;
+    let nominator = n_dot_v;
+    let denominator = n_dot_v * (1.0 - k) + k;
+    return nominator / denominator;
 }
 
-fn geometrySmith(normal: vec3<f32>, V: vec3<f32>, light_dir: vec3<f32>, roughness: f32) -> f32 {
-    let NdotV = max(dot(normal, V), 0.0);
-    let NdotL = max(dot(normal, light_dir), 0.0);
-    let ggx2 = geometrySchlickGGX(NdotV, roughness);
-    let ggx1 = geometrySchlickGGX(NdotL, roughness);
-
+fn geometrySmith(normal: vec3<f32>, view_dir: vec3<f32>, light_dir: vec3<f32>, roughness: f32) -> f32 {
+    let n_dot_v = max(dot(normal, view_dir), 0.0);
+    let n_dot_l = max(dot(normal, light_dir), 0.0);
+    let ggx2 = geometrySchlickGGX(n_dot_v, roughness);
+    let ggx1 = geometrySchlickGGX(n_dot_l, roughness);
     return ggx1 * ggx2;
 }
 
-fn fresnelSchlick(cosTheta: f32, surface_reflection: vec3<f32>) -> vec3<f32> {
-    return surface_reflection + (1.0 - surface_reflection) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+fn fresnelSchlick(cos_theta: f32, surface_reflection: vec3<f32>) -> vec3<f32> {
+    return surface_reflection + (1.0 - surface_reflection) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }

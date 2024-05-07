@@ -1,7 +1,6 @@
 const std = @import("std");
 const mach = @import("mach");
-const M3d = @import("model3d");
-const wavefront = @import("wavefront.zig");
+const M3D = @import("model3d");
 const math = @import("math.zig");
 const Texture = @import("Texture.zig");
 const shaders = @import("shaders.zig");
@@ -64,7 +63,7 @@ const m3dp_map_Kd: c_int = 128;
 const m3dp_map_Km: c_int = 134;
 
 pub fn initFromM3D(data: [:0]const u8) !Model {
-    const m3d = M3d.load(data, null, null, null) orelse return error.LoadModelFailed;
+    const m3d = M3D.load(data, null, null, null) orelse return error.LoadModelFailed;
     defer m3d.deinit();
 
     // Count Meshes
@@ -122,7 +121,6 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
                         m3d.handle.vertex[normal].z,
                     );
                 } else {
-                    // TODO: default_normal_value constant
                     vertex.normal = vec3(0.5, 0.5, 1);
                 }
 

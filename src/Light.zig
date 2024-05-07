@@ -62,15 +62,8 @@ pub fn init(state: *Light, renderer_state: *Renderer) !void {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                // TODO(sysgpu)
-                if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform), 0)
-                else
-                    gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform)),
-                if (build_options.use_sysgpu)
-                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride, 0)
-                else
-                    gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
+                gpu.BindGroup.Entry.buffer(0, camera_uniform_buf, 0, @sizeOf(shaders.CameraUniform)),
+                gpu.BindGroup.Entry.buffer(1, light_uniform_buf, 0, light_uniform_stride),
             },
         }),
     );
@@ -157,7 +150,7 @@ fn render(light: *Mod, renderer: *Renderer.Mod, camera: Camera) !void {
                 state.light_uniform_buf,
                 buffer_offset,
                 &[_]shaders.LightUniform{.{
-                    .position = position, // TODO: x is reverted!?
+                    .position = position,
                     .color = color,
                     .radius = radius,
                 }},

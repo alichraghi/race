@@ -124,7 +124,7 @@ pub fn init(state: *Renderer) !void {
     });
     state.instance_buffer = mach.core.device.createBuffer(&.{
         .usage = .{ .vertex = true, .copy_dst = true },
-        .size = @sizeOf(shaders.InstanceData) * max_scene_objects, // TODO: enough?
+        .size = @sizeOf(shaders.InstanceData) * max_scene_objects,
         .mapped_at_creation = .false,
     });
     state.material_params_uniform = mach.core.device.createBuffer(&.{
@@ -138,7 +138,6 @@ pub fn init(state: *Renderer) !void {
         .texture = try Texture.initFromFile("assets/prototype-textures/Dark/texture_02.png"),
         .normal = try Texture.init(1, 1, .rgba, &.{ 128, 128, 255, 255 }),
     };
-    state.encoder = mach.core.device.createCommandEncoder(&.{});
 }
 
 fn deinit(renderer: *Mod) !void {
@@ -188,6 +187,7 @@ fn beginRender(renderer: *Mod) !void {
         },
     });
 
+    state.encoder = mach.core.device.createCommandEncoder(&.{});
     state.pass = state.encoder.beginRenderPass(&pass_info);
 }
 
@@ -202,8 +202,6 @@ fn endRender(renderer: *Mod, core: *mach.Core.Mod) !void {
     state.encoder.release();
     mach.core.queue.submit(&[_]*gpu.CommandBuffer{command});
 
-    // Prepare for next pass
-    state.encoder = mach.core.device.createCommandEncoder(&.{});
     core.send(.present_frame, .{});
 }
 
@@ -314,7 +312,7 @@ fn render(renderer: *Mod, camera: Camera) !void {
         archetype.slice(.light, .radius),
     ) |position, color, radius| {
         try lights.append(.{
-            .position = position, // TODO: x is reverse?!
+            .position = position,
             .color = color,
             .radius = radius,
         });
