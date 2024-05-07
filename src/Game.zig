@@ -7,7 +7,9 @@ const Light = @import("Light.zig");
 const Model = @import("Model.zig");
 const Core = mach.Core;
 const gpu = mach.gpu;
+const Vec2 = math.Vec2;
 const Vec3 = math.Vec3;
+const vec2 = math.vec2;
 const vec3 = math.vec3;
 const vec4 = math.vec4;
 
@@ -21,7 +23,7 @@ camera_rot: Vec3,
 camera_dir: Vec3,
 camera_front: Vec3,
 
-last_mouse_pos: Vec3,
+mouse_pos: Vec2,
 
 pub const name = .app;
 pub const Mod = mach.Mod(Game);
@@ -69,7 +71,7 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod, core: *Core.Mod)
     game.init(.{
         .models = undefined,
         .main_camera = undefined,
-        .last_mouse_pos = undefined,
+        .mouse_pos = undefined,
         .camera_pos = undefined,
         .camera_rot = undefined,
         .camera_dir = undefined,
@@ -81,26 +83,25 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod, core: *Core.Mod)
     const state: *Game = game.state();
 
     // Load Models
-    state.models.set(.samurai, try Model.initFromFile("assets/samurai.m3d"));
     state.models.set(.cube, try Model.initFromFile("assets/cube.m3d"));
 
     // Create Objects
     const cube = try renderer.newEntity();
     try renderer.set(cube, .model, state.models.get(.cube));
-    try renderer.set(cube, .transform, .{});
+    try renderer.set(cube, .transform, .{ .scale = vec3(10, std.math.floatMin(f32), 10) });
 
-    const samurai_instanced = try renderer.newEntity();
-    try renderer.set(samurai_instanced, .model, state.models.get(.samurai));
-    try renderer.set(samurai_instanced, .instances, try mach.core.allocator.dupe(Renderer.Transform, &.{
+    const cube_instanced = try renderer.newEntity();
+    try renderer.set(cube_instanced, .model, state.models.get(.cube));
+    try renderer.set(cube_instanced, .instances, try mach.core.allocator.dupe(Renderer.Transform, &.{
         .{
             .translation = vec3(0, 1, -2.5),
             .rotation = vec3(0, 0, 0),
-            .scale = vec3(0.5, 0.5, 0.5),
+            .scale = vec3(1, 1, 1),
         },
         .{
             .translation = vec3(2, 0, 0),
             .rotation = vec3(0, 0, 0),
-            .scale = vec3(0.75, 0.75, 0.75),
+            .scale = vec3(1, 1, 1),
         },
         .{
             .translation = vec3(5, 0, 0),
@@ -127,14 +128,13 @@ fn init(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod, core: *Core.Mod)
 
     // Camera
     state.main_camera = Camera{};
-    state.camera_pos = vec3(0, 0, -6);
-    state.camera_rot = vec3(0, math.pi / 2.0, 0); // 90deg
-    state.camera_front = math.worldSpaceDirection(state.camera_rot);
+    state.camera_pos = vec3(0, 10, -1);
+    state.camera_front = vec3(0.5, -0.5, 0);
     state.camera_dir = vec3(0, 0, 0);
 
     // Misc
     const mouse_pos = mach.core.mousePosition();
-    state.last_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0);
+    state.mouse_pos = vec2(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x));
 
     core.send(.start, .{});
 }
@@ -168,26 +168,29 @@ fn tick(game: *Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
 fn tickCamera(game: *Mod) !void {
     const state: *Game = game.state();
 
-    // Position
+    // Movement
     const move_speed = 2 * mach.core.delta_time;
-    const camera_movement = state.camera_front
-        .mulScalar(state.camera_dir.z()) // Forward-Backward
-        .add(&math.normalize(state.camera_front.cross(&math.up)).mulScalar(state.camera_dir.x())) // Right-Left
-        .mulScalar(move_speed);
+    const camera_movement = vec3(state.camera_dir.z(), 0, state.camera_dir.x()).mulScalar(move_speed);
     state.camera_pos = state.camera_pos.add(&camera_movement);
 
     // Projection
-    const w: f32 = @floatFromInt(mach.core.descriptor.width);
-    const h: f32 = @floatFromInt(mach.core.descriptor.height);
-    state.main_camera.projection = Camera.perspective(
-        math.pi / 4.0, // 45deg
-        w / h,
-        0.01,
+    // const w: f32 = @floatFromInt(mach.core.descriptor.width);
+    // const h: f32 = @floatFromInt(mach.core.descriptor.height);
+    // state.main_camera.projection = math.perspectiveRh(
+    //     math.pi / 4.0, // 45deg
+    //     w / h,
+    //     0.01,
+    //     100,
+    // );
+    state.main_camera.projection = math.orthoRh(
+        5,
+        5,
+        0,
         100,
     );
 
     // View
-    state.main_camera.view = Camera.lookAt(
+    state.main_camera.view = math.lookAtRh(
         state.camera_pos,
         state.camera_pos.add(&state.camera_front),
         math.up,
@@ -225,12 +228,7 @@ fn processEvents(game: *Mod, core: *Core.Mod, renderer: *Renderer.Mod) !void {
                 else => {},
             },
             .mouse_motion => |m| {
-                const rot_speed = mach.core.delta_time * 0.2;
-                const mouse_pos = vec3(@floatCast(-m.pos.y), @floatCast(m.pos.x), 0);
-                const rotation = mouse_pos.sub(&state.last_mouse_pos);
-                state.last_mouse_pos = mouse_pos;
-                state.camera_rot = state.camera_rot.add(&rotation.mulScalar(rot_speed));
-                state.camera_front = math.worldSpaceDirection(state.camera_rot);
+                state.mouse_pos = vec2(@floatCast(-m.pos.y), @floatCast(m.pos.x));
             },
             .framebuffer_resize => |size| {
                 renderer_state.framebufferResize(size);

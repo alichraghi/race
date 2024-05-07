@@ -1,8 +1,10 @@
+const std = @import("std");
 const math = @import("mach").math;
 const Vec3 = math.Vec3;
 const Mat3x3 = math.Mat3x3;
 const Mat4x4 = math.Mat4x4;
 const vec3 = math.vec3;
+const vec4 = math.vec4;
 const mat3x3 = math.mat3x3;
 const mat4x4 = math.mat4x4;
 
@@ -67,5 +69,73 @@ pub fn transformNormal(rotation: Vec3, scale: Vec3) Mat3x3 {
             inv_scale.z() * (-s2),
             inv_scale.z() * (c1 * c2),
         ),
+    );
+}
+
+// pub fn lookAtRh(eyepos: Vec3, focuspos: Vec3, updir: Vec3) Mat4x4 {
+//     return lookToLh(eyepos, eyepos.sub(&focuspos), updir);
+// }
+
+pub fn lookToLh(eyepos: Vec3, eyedir: Vec3, updir: Vec3) Mat4x4 {
+    const az = normalize(eyedir);
+    const ax = normalize(updir.cross(&az));
+    const ay = normalize(az.cross(&ax));
+    return mat4x4(
+        &vec4(ax.x(), ax.y(), ax.z(), -ax.dot(&eyepos)),
+        &vec4(ay.x(), ay.y(), ay.z(), -ay.dot(&eyepos)),
+        &vec4(az.x(), az.y(), az.z(), -az.dot(&eyepos)),
+        &vec4(0, 0, 0, 1),
+    );
+}
+
+pub fn orthoRh(w: f32, h: f32, near: f32, far: f32) Mat4x4 {
+    const r = 1 / (near - far);
+    return mat4x4(
+        &vec4(2 / w, 0, 0, 0),
+        &vec4(0, 2 / h, 0, 0),
+        &vec4(0, 0, r, r * near),
+        &vec4(0, 0, 0, 1),
+    ).transpose();
+}
+
+// pub fn perspectiveRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat4x4 {
+//     std.debug.assert(near > 0 and far > 0);
+//     std.debug.assert(!std.math.approxEqAbs(f32, far, near, 0.001));
+//     std.debug.assert(!std.math.approxEqAbs(f32, aspect, 0, 0.01));
+
+//     const h = @cos(0.5 * fovy) / @sin(0.5 * fovy);
+//     const w = h / aspect;
+//     const r = far / (near - far);
+//     return mat4x4(
+//         &vec4(w, 0, 0, 0),
+//         &vec4(0, h, 0, 0),
+//         &vec4(0, 0, r, r * near),
+//         &vec4(0, 0, -1, 0),
+//     );
+// }
+
+// old
+pub fn perspectiveRh(fovy: f32, aspect: f32, near: f32, far: f32) Mat4x4 {
+    const h = 1 / @tan(0.5 * fovy);
+    const w = h / aspect;
+    const r = far / (near - far);
+    return mat4x4(
+        &vec4(w, 0.0, 0.0, 0.0),
+        &vec4(0.0, h, 0.0, 0.0),
+        &vec4(0.0, 0.0, r, r * near),
+        &vec4(0.0, 0.0, -1, 0.0),
+    );
+}
+
+// old
+pub fn lookAtRh(eye: Vec3, dir: Vec3, updir: Vec3) Mat4x4 {
+    const f = normalize(eye.sub(&dir));
+    const s = normalize(updir.cross(&f));
+    const u = f.cross(&s);
+    return mat4x4(
+        &vec4(-s.x(), s.y(), s.z(), -s.dot(&eye)),
+        &vec4(-u.x(), u.y(), u.z(), -u.dot(&eye)),
+        &vec4(-f.x(), f.y(), f.z(), -f.dot(&eye)),
+        &vec4(0, 0, 0, 1),
     );
 }
