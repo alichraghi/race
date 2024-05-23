@@ -22,7 +22,6 @@ pub const Vertex = extern struct {
     position: Vec3,
     normal: Vec3,
     uv: Vec2,
-    tangent: Vec4,
 
     pub const attributes = [_]gpu.VertexAttribute{
         .{
@@ -39,11 +38,6 @@ pub const Vertex = extern struct {
             .format = .float32x2,
             .offset = @offsetOf(Vertex, "uv"),
             .shader_location = 2,
-        },
-        .{
-            .format = .float32x4,
-            .offset = @offsetOf(Vertex, "tangent"),
-            .shader_location = 3,
         },
     };
 
@@ -62,37 +56,37 @@ pub const InstanceData = extern struct {
         .{
             .format = .float32x4,
             .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 0,
-            .shader_location = 4,
+            .shader_location = 3,
         },
         .{
             .format = .float32x4,
             .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 1,
-            .shader_location = 5,
+            .shader_location = 4,
         },
         .{
             .format = .float32x4,
             .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 2,
-            .shader_location = 6,
+            .shader_location = 5,
         },
         .{
             .format = .float32x4,
             .offset = @offsetOf(InstanceData, "transform") + @sizeOf(Vec4) * 3,
-            .shader_location = 7,
+            .shader_location = 6,
         },
         .{
             .format = .float32x3,
             .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 0,
-            .shader_location = 8,
+            .shader_location = 7,
         },
         .{
             .format = .float32x3,
             .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 1,
-            .shader_location = 9,
+            .shader_location = 8,
         },
         .{
             .format = .float32x3,
             .offset = @offsetOf(InstanceData, "normal") + @sizeOf(Vec3) * 2,
-            .shader_location = 10,
+            .shader_location = 9,
         },
     };
 

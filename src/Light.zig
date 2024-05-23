@@ -94,7 +94,6 @@ pub fn init(state: *Light, renderer_state: *Renderer) !void {
             .entry_point = "vertex_main",
             .buffers = &.{},
         }),
-        .primitive = .{},
         .depth_stencil = &.{
             .format = .depth24_plus,
             .depth_write_enabled = .true,
@@ -156,7 +155,7 @@ fn render(light: *Mod, renderer: *Renderer.Mod, camera: Camera) !void {
                 }},
             );
             renderer_state.pass.setBindGroup(0, state.bind_group, &.{buffer_offset});
-            renderer_state.pass.draw(6, 1, 0, 0);
+            renderer_state.pass.draw(18, 1, 0, 0);
         }
     }
 }

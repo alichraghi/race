@@ -46,8 +46,6 @@ camera_uniform: *gpu.Buffer,
 lights_uniform: *gpu.Buffer,
 instance_buffer: *gpu.Buffer,
 sampler: *gpu.Sampler,
-material_params_uniform: *gpu.Buffer,
-material_params_uniform_stride: u32,
 default_material: Model.Material,
 
 pub const Transform = struct {
@@ -99,16 +97,12 @@ const Pipeline = struct {
 };
 
 const max_scene_objects = 1024;
-const max_materials = 1024;
 
 pub fn init(state: *Renderer) !void {
     state.limits = gpu.SupportedLimits{ .limits = .{ .min_uniform_buffer_offset_alignment = 256 } };
     if (!build_options.use_sysgpu) {
         _ = mach.core.device.getLimits(&state.limits);
     }
-
-    const min_uniform_alignment = state.limits.limits.min_uniform_buffer_offset_alignment;
-    state.material_params_uniform_stride = math.uniformStride(shaders.MaterialParams, min_uniform_alignment);
 
     state.createTextures(.{ .width = mach.core.descriptor.width, .height = mach.core.descriptor.height });
     state.shader = mach.core.device.createShaderModuleWGSL("object", @embedFile("shaders/object.wgsl"));
@@ -127,15 +121,10 @@ pub fn init(state: *Renderer) !void {
         .size = @sizeOf(shaders.InstanceData) * max_scene_objects,
         .mapped_at_creation = .false,
     });
-    state.material_params_uniform = mach.core.device.createBuffer(&.{
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(shaders.MaterialParams) * max_materials,
-        .mapped_at_creation = .false,
-    });
     state.sampler = mach.core.device.createSampler(&.{ .mag_filter = .linear, .min_filter = .linear });
     state.default_material = .{
         .name = "Default Material",
-        .texture = try Texture.initFromFile("assets/prototype-textures/Dark/texture_02.png"),
+        .texture = try Texture.initFromFile("assets/blue.png"),
         .normal = try Texture.init(1, 1, .rgba, &.{ 128, 128, 255, 255 }),
     };
 }
@@ -226,10 +215,9 @@ fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
             .entries = &.{
                 gpu.BindGroupLayout.Entry.buffer(0, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
                 gpu.BindGroupLayout.Entry.buffer(1, .{ .vertex = true, .fragment = true }, .uniform, false, 0),
-                gpu.BindGroupLayout.Entry.buffer(2, .{ .fragment = true }, .uniform, true, 0),
-                gpu.BindGroupLayout.Entry.sampler(3, .{ .fragment = true }, .filtering),
+                gpu.BindGroupLayout.Entry.sampler(2, .{ .fragment = true }, .filtering),
+                gpu.BindGroupLayout.Entry.texture(3, .{ .fragment = true }, .float, .dimension_2d, false),
                 gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .float, .dimension_2d, false),
-                gpu.BindGroupLayout.Entry.texture(5, .{ .fragment = true }, .float, .dimension_2d, false),
             },
         }),
     );
@@ -241,10 +229,9 @@ fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
             .entries = &.{
                 gpu.BindGroup.Entry.buffer(0, state.camera_uniform, 0, @sizeOf(shaders.CameraUniform)),
                 gpu.BindGroup.Entry.buffer(1, state.lights_uniform, 0, @sizeOf(shaders.LightListUniform)),
-                gpu.BindGroup.Entry.buffer(2, state.material_params_uniform, 0, @sizeOf(shaders.MaterialParams)),
-                gpu.BindGroup.Entry.sampler(3, state.sampler),
-                gpu.BindGroup.Entry.textureView(4, config.material.texture.view),
-                gpu.BindGroup.Entry.textureView(5, (config.material.normal orelse state.default_material.normal.?).view),
+                gpu.BindGroup.Entry.sampler(2, state.sampler),
+                gpu.BindGroup.Entry.textureView(3, config.material.texture.view),
+                gpu.BindGroup.Entry.textureView(4, (config.material.normal orelse state.default_material.normal.?).view),
             },
         }),
     );
@@ -252,7 +239,9 @@ fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
     const pipeline_layout = mach.core.device.createPipelineLayout(
         &gpu.PipelineLayout.Descriptor.init(.{ .bind_group_layouts = &.{bind_group_layout} }),
     );
-    const pipeline_descriptor = gpu.RenderPipeline.Descriptor{
+    defer pipeline_layout.release();
+
+    const pipeline = mach.core.device.createRenderPipeline(&.{
         .layout = pipeline_layout,
         .fragment = &gpu.FragmentState.init(.{
             .module = state.shader,
@@ -273,8 +262,10 @@ fn createPipeline(state: *Renderer, config: Pipeline.Config) Pipeline {
             .depth_write_enabled = .true,
             .depth_compare = .less,
         },
-    };
-    const pipeline = mach.core.device.createRenderPipeline(&pipeline_descriptor);
+        .primitive = .{
+            .cull_mode = .back,
+        },
+    });
 
     return .{
         .pipeline = pipeline,
@@ -322,7 +313,7 @@ fn render(renderer: *Mod, camera: Camera) !void {
         state.lights_uniform,
         0,
         &[_]shaders.LightListUniform{.{
-            .ambient = vec4(0.2, 0.2, 0.2, 0.2),
+            .ambient = vec4(1, 1, 1, 0.5),
             .lights = lights.buffer,
             .len = lights.len,
         }},
@@ -330,7 +321,6 @@ fn render(renderer: *Mod, camera: Camera) !void {
 
     // Instance Data
     var instance_offset: u32 = 0;
-    var material_params_offset: u32 = 0;
     var iter = renderer.entities.query(.{ .all = &.{.{ .renderer = &.{.model} }} });
     while (iter.next()) |archetype| for (
         archetype.slice(.entity, .id),
@@ -345,12 +335,14 @@ fn render(renderer: *Mod, camera: Camera) !void {
         const instance_start_offset = instance_offset;
         for (transforms) |instance| {
             // writeBuffer is just a @memcpy
+            const t = math.transform(instance.translation, instance.rotation, instance.scale);
             mach.core.queue.writeBuffer(
                 state.instance_buffer,
                 instance_offset,
                 &[_]shaders.InstanceData{.{
-                    .transform = math.transform(instance.translation, instance.rotation, instance.scale),
+                    .transform = t,
                     .normal = math.transformNormal(instance.rotation, instance.scale),
+                    // .normal = math.inverse(t),
                 }},
             );
             instance_offset += @sizeOf(shaders.InstanceData);
@@ -360,17 +352,8 @@ fn render(renderer: *Mod, camera: Camera) !void {
             const material = if (mesh.material) |material| model.materials[material] else state.default_material;
             const pipeline = try state.getPipeline(.{ .material = material });
 
-            mach.core.queue.writeBuffer(
-                state.material_params_uniform,
-                material_params_offset,
-                &[_]shaders.MaterialParams{.{
-                    .metallic = material.metallic,
-                    .roughness = material.roughness,
-                }},
-            );
-
             game_state.pass.setPipeline(pipeline.pipeline);
-            game_state.pass.setBindGroup(0, pipeline.bind_group, &.{material_params_offset});
+            game_state.pass.setBindGroup(0, pipeline.bind_group, &.{});
             game_state.pass.setVertexBuffer(0, mesh.vertex_buf, 0, mesh.vertex_count * @sizeOf(shaders.Vertex));
             game_state.pass.setVertexBuffer(1, state.instance_buffer, instance_start_offset, transforms.len * @sizeOf(shaders.InstanceData));
             if (mesh.index_buf) |index_buf| {
@@ -379,8 +362,6 @@ fn render(renderer: *Mod, camera: Camera) !void {
             } else {
                 game_state.pass.draw(mesh.vertex_count, @intCast(transforms.len), 0, 0);
             }
-
-            material_params_offset += state.material_params_uniform_stride;
         }
     };
 }

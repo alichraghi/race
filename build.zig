@@ -8,7 +8,6 @@ pub fn build(b: *std.Build) !void {
     const mach_dep = b.dependency("mach", .{ .target = target, .optimize = optimize });
     const model3d_dep = b.dependency("model3d", .{ .target = target, .optimize = optimize });
     const zigimg_dep = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
-    const ufbx_dep = b.dependency("ufbx", .{ .target = target, .optimize = optimize });
 
     const use_sysgpu = b.option(bool, "use_sysgpu", "Use sysgpu") orelse false;
     const build_options = b.addOptions();
@@ -25,8 +24,6 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addImport("model3d", model3d_dep.module("mach-model3d"));
     exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
 
-    exe.addIncludePath(ufbx_dep.path(""));
-    exe.addCSourceFile(.{ .file = ufbx_dep.path("ufbx.c"), .flags = &.{} });
     exe.linkLibrary(model3d_dep.artifact("mach-model3d"));
     mach.link(b, exe, &exe.root_module);
     mach.addPaths(&exe.root_module);
