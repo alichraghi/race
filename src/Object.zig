@@ -39,7 +39,7 @@ pub const global_events = .{
 pipelines: std.ArrayHashMapUnmanaged(Pipeline.Config, Pipeline, Pipeline.Config.ArrayHashContext, false) = .{},
 gbuffers_shader: *gpu.ShaderModule = undefined,
 instance_buffer: *gpu.Buffer = undefined,
-material_config_uniform: *gpu.Buffer = undefined,
+default_material: Model.Material = undefined,
 
 pub const Transform = struct {
     translation: Vec3 = vec3(0, 0, 0),
@@ -57,25 +57,39 @@ const Pipeline = struct {
         pub const ArrayHashContext = struct {
             pub fn eql(ctx: ArrayHashContext, a: Config, b: Config, _: usize) bool {
                 _ = ctx;
-                return a.material.id == b.material.id;
+
+                var eql_normal = false;
+                if (a.material.normal != null and b.material.normal != null) {
+                    eql_normal = a.material.normal.?.view == b.material.normal.?.view;
+                } else if (a.material.normal == null and b.material.normal == null) {
+                    eql_normal = true;
+                }
+
+                // NOTE: We don't compare float values but this should be enough
+                return a.material.texture.view == b.material.texture.view and
+                    std.mem.eql(u8, a.material.name, b.material.name) and eql_normal;
             }
 
             pub fn hash(ctx: ArrayHashContext, a: Config) u32 {
                 _ = ctx;
-                return a.material.id;
+                var xx32 = std.hash.XxHash32.init(0);
+                xx32.update(a.material.name);
+                xx32.update(&std.mem.toBytes(@intFromPtr(a.material.texture.view)));
+                if (a.material.normal) |normal| {
+                    xx32.update(&std.mem.toBytes(@intFromPtr(normal.view)));
+                }
+                return xx32.final();
             }
         };
     };
 
-    fn deinit(pipeline: *Pipeline) void {
-        pipeline.gbuffer_bind_group.release();
+    fn deinit(pipeline: Pipeline) void {
         pipeline.gbuffer_pipeline.release();
-        pipeline.* = undefined;
+        pipeline.gbuffer_bind_group.release();
     }
 };
 
 const max_scene_objects = 1024;
-const max_materials = 1024;
 
 pub fn init(object: *Object) !void {
     object.gbuffers_shader = mach.core.device.createShaderModuleWGSL("gbuffers", @embedFile("shaders/gbuffers.wgsl"));
@@ -84,11 +98,11 @@ pub fn init(object: *Object) !void {
         .size = @sizeOf(shaders.InstanceData) * max_scene_objects,
         .mapped_at_creation = .false,
     });
-    object.material_config_uniform = mach.core.device.createBuffer(&.{
-        .usage = .{ .uniform = true, .copy_dst = true },
-        .size = @sizeOf(shaders.MaterialConfig) * max_materials,
-        .mapped_at_creation = .false,
-    });
+    object.default_material = .{
+        .name = "Default Material",
+        .texture = try Texture.initFromFile("assets/blue.png"),
+        .normal = try Texture.init(1, 1, .rgba, &.{ 128, 128, 255, 255 }),
+    };
 }
 
 pub fn deinit(object: *Mod) !void {
@@ -128,10 +142,10 @@ fn createPipeline(object: *Object, renderer: *Renderer, config: Pipeline.Config)
                 .{
                     .binding = 1,
                     .visibility = .{ .fragment = true },
-                    .buffer = .{
-                        .type = .uniform,
-                        .has_dynamic_offset = .true,
-                        .min_binding_size = @sizeOf(shaders.MaterialConfig),
+                    .texture = .{
+                        .sample_type = .float,
+                        .view_dimension = .dimension_2d,
+                        .multisampled = .false,
                     },
                 },
                 .{
@@ -145,15 +159,6 @@ fn createPipeline(object: *Object, renderer: *Renderer, config: Pipeline.Config)
                 },
                 .{
                     .binding = 3,
-                    .visibility = .{ .fragment = true },
-                    .texture = .{
-                        .sample_type = .float,
-                        .view_dimension = .dimension_2d,
-                        .multisampled = .false,
-                    },
-                },
-                .{
-                    .binding = 4,
                     .visibility = .{ .fragment = true },
                     .sampler = .{ .type = .filtering },
                 },
@@ -173,21 +178,16 @@ fn createPipeline(object: *Object, renderer: *Renderer, config: Pipeline.Config)
                 },
                 .{
                     .binding = 1,
-                    .buffer = object.material_config_uniform, // TODO: combine Object into Renderer
-                    .size = @sizeOf(shaders.MaterialConfig) * max_materials,
-                },
-                .{
-                    .binding = 2,
                     .texture_view = config.material.texture.view,
                     .size = 0,
                 },
                 .{
-                    .binding = 3,
+                    .binding = 2,
                     .texture_view = config.material.normal.?.view,
                     .size = 0,
                 },
                 .{
-                    .binding = 4,
+                    .binding = 3,
                     .sampler = config.material.texture.sampler,
                     .size = 0,
                 },
@@ -198,7 +198,7 @@ fn createPipeline(object: *Object, renderer: *Renderer, config: Pipeline.Config)
     const gbuffer_pipeline_layout = mach.core.device.createPipelineLayout(
         &gpu.PipelineLayout.Descriptor.init(.{ .bind_group_layouts = &.{gbuffer_bind_group_layout} }),
     );
-    const gbuffer_pipeline_descriptor = gpu.RenderPipeline.Descriptor{
+    const gbuffer_pipeline = mach.core.device.createRenderPipeline(&.{
         .layout = gbuffer_pipeline_layout,
         .fragment = &gpu.FragmentState.init(.{
             .module = object.gbuffers_shader,
@@ -207,8 +207,6 @@ fn createPipeline(object: *Object, renderer: *Renderer, config: Pipeline.Config)
                 .{ .format = .rgba16_float },
                 .{ .format = .rgba16_float },
                 .{ .format = .bgra8_unorm },
-                .{ .format = .r8_unorm },
-                .{ .format = .r8_unorm },
             },
         }),
         .vertex = gpu.VertexState.init(.{
@@ -221,8 +219,7 @@ fn createPipeline(object: *Object, renderer: *Renderer, config: Pipeline.Config)
             .depth_write_enabled = .true,
             .depth_compare = .less,
         },
-    };
-    const gbuffer_pipeline = mach.core.device.createRenderPipeline(&gbuffer_pipeline_descriptor);
+    });
 
     return .{ .gbuffer_pipeline = gbuffer_pipeline, .gbuffer_bind_group = gbuffer_bind_group };
 }
@@ -240,7 +237,6 @@ pub fn renderGBuffer(object: *Mod, renderer: *Renderer.Mod) !void {
 
     // Instance Data
     var instance_buffer_offset: u32 = 0;
-    var material_config_buffer_offset: u32 = 0;
     var object_iter = object.entities.query(.{ .all = &.{.{ .object = &.{.model} }} });
     while (object_iter.next()) |archetype| for (
         archetype.slice(.entity, .id),
@@ -269,19 +265,11 @@ pub fn renderGBuffer(object: *Mod, renderer: *Renderer.Mod) !void {
         renderer_state.gbuffer_pass.setVertexBuffer(1, state.instance_buffer, instance_start_offset, transforms.len * @sizeOf(shaders.InstanceData));
 
         for (model.meshes) |mesh| {
-            const pipeline = try state.getPipeline(renderer_state, .{ .material = model.materials[mesh.material] });
-
-            mach.core.queue.writeBuffer(
-                state.material_config_uniform,
-                material_config_buffer_offset,
-                &[_]shaders.MaterialConfig{.{
-                    .metallic = model.materials[mesh.material].metallic,
-                    .roughness = model.materials[mesh.material].roughness,
-                }},
-            );
+            const material = if (mesh.material) |material| model.materials[material] else state.default_material;
+            const pipeline = try state.getPipeline(renderer_state, .{ .material = material });
 
             renderer_state.gbuffer_pass.setPipeline(pipeline.gbuffer_pipeline);
-            renderer_state.gbuffer_pass.setBindGroup(0, pipeline.gbuffer_bind_group, &.{material_config_buffer_offset});
+            renderer_state.gbuffer_pass.setBindGroup(0, pipeline.gbuffer_bind_group, &.{});
             renderer_state.gbuffer_pass.setVertexBuffer(0, mesh.vertex_buf, 0, mesh.vertex_count * @sizeOf(shaders.Vertex));
             if (mesh.index_buf) |index_buf| {
                 renderer_state.gbuffer_pass.setIndexBuffer(index_buf, .uint32, 0, mesh.index_count * @sizeOf(u32));
@@ -292,8 +280,6 @@ pub fn renderGBuffer(object: *Mod, renderer: *Renderer.Mod) !void {
             } else {
                 renderer_state.gbuffer_pass.draw(mesh.vertex_count, @intCast(transforms.len), 0, 0);
             }
-
-            material_config_buffer_offset += @sizeOf(shaders.MaterialConfig);
         }
     };
 }

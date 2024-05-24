@@ -10,6 +10,7 @@ const Mat4x4 = math.Mat4x4;
 pub const Vertex = extern struct {
     position: Vec3,
     normal: Vec3,
+    tangent: Vec4,
     uv: Vec2,
 
     pub const attributes = [_]gpu.VertexAttribute{
@@ -24,9 +25,14 @@ pub const Vertex = extern struct {
             .shader_location = 1,
         },
         .{
+            .format = .float32x4,
+            .offset = @offsetOf(Vertex, "tangent"),
+            .shader_location = 2,
+        },
+        .{
             .format = .float32x2,
             .offset = @offsetOf(Vertex, "uv"),
-            .shader_location = 2,
+            .shader_location = 3,
         },
     };
 
@@ -45,42 +51,42 @@ pub const InstanceData = extern struct {
         .{
             .format = .float32x4,
             .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 0,
-            .shader_location = 3,
-        },
-        .{
-            .format = .float32x4,
-            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 1,
             .shader_location = 4,
         },
         .{
             .format = .float32x4,
-            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 2,
+            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 1,
             .shader_location = 5,
         },
         .{
             .format = .float32x4,
-            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 3,
+            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 2,
             .shader_location = 6,
         },
         .{
-            .format = .float32x3,
-            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 0,
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "model") + @sizeOf(Vec4) * 3,
             .shader_location = 7,
         },
         .{
-            .format = .float32x3,
-            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 1,
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec4) * 0,
             .shader_location = 8,
         },
         .{
-            .format = .float32x3,
-            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 2,
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec4) * 1,
             .shader_location = 9,
         },
         .{
-            .format = .float32x3,
-            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec3) * 3,
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec4) * 2,
             .shader_location = 10,
+        },
+        .{
+            .format = .float32x4,
+            .offset = @offsetOf(InstanceData, "model_normal") + @sizeOf(Vec4) * 3,
+            .shader_location = 11,
         },
     };
 
@@ -96,12 +102,6 @@ pub const CameraUniform = extern struct {
     view: Mat4x4,
     projection_view: Mat4x4,
     inverse_projection_view: Mat4x4,
-};
-
-pub const MaterialConfig = extern struct {
-    metallic: f32,
-    roughness: f32,
-    _padding: [30]u8 = undefined, // TODO: use limits api
 };
 
 pub const Light = extern struct {
@@ -122,8 +122,6 @@ pub const RenderMode = enum(u32) {
     debug_albedo = 1,
     debug_normal = 2,
     debug_depth = 3,
-    debug_metallic = 4,
-    debug_roughness = 5,
 
     pub const max = @typeInfo(RenderMode).Enum.fields[@typeInfo(RenderMode).Enum.fields.len - 1].value;
 };

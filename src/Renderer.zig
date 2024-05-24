@@ -34,16 +34,12 @@ gbuffer_sampler: *gpu.Sampler = undefined,
 depth_texture: *gpu.Texture = undefined,
 gbuffer_texture_albedo: *gpu.Texture = undefined,
 gbuffer_texture_normal: *gpu.Texture = undefined,
-gbuffer_texture_metallic: *gpu.Texture = undefined,
-gbuffer_texture_roughness: *gpu.Texture = undefined,
 gbuffer_texture_positions: *gpu.Texture = undefined,
 
 back_view: *gpu.TextureView = undefined,
 depth_view: *gpu.TextureView = undefined,
 gbuffer_texture_albedo_view: *gpu.TextureView = undefined,
 gbuffer_texture_normal_view: *gpu.TextureView = undefined,
-gbuffer_texture_metallic_view: *gpu.TextureView = undefined,
-gbuffer_texture_roughness_view: *gpu.TextureView = undefined,
 gbuffer_texture_positions_view: *gpu.TextureView = undefined,
 
 encoder: *gpu.CommandEncoder = undefined,
@@ -134,18 +130,6 @@ pub fn beginGBuffer(renderer: *Mod) void {
                 .load_op = .clear,
                 .store_op = .store,
             },
-            .{
-                .view = state.gbuffer_texture_metallic_view,
-                .clear_value = .{ .r = 1, .g = 0, .b = 0, .a = 1 },
-                .load_op = .clear,
-                .store_op = .store,
-            },
-            .{
-                .view = state.gbuffer_texture_roughness_view,
-                .clear_value = .{ .r = 0, .g = 1, .b = 0, .a = 1 },
-                .load_op = .clear,
-                .store_op = .store,
-            },
         },
         .depth_stencil_attachment = &.{
             .view = state.depth_view,
@@ -218,16 +202,6 @@ pub fn writeCamera(renderer: *Mod, camera: Camera) !void {
     );
 }
 
-pub fn writeMaterialConfig(renderer: *Mod, config: shaders.MaterialConfig, index: u32) !void {
-    const state: *Renderer = renderer.state();
-
-    mach.core.queue.writeBuffer(
-        state.material_config_uniform,
-        index * @sizeOf(shaders.MaterialConfig),
-        &[_]shaders.MaterialConfig{config},
-    );
-}
-
 pub fn writeLights(renderer: *Mod) !void {
     const state: *Renderer = renderer.state();
 
@@ -280,13 +254,9 @@ pub fn rendererFramebufferResize(renderer: *Mod, size: mach.core.Size) void {
     state.depth_texture.release();
     state.gbuffer_texture_normal.release();
     state.gbuffer_texture_albedo.release();
-    state.gbuffer_texture_metallic.release();
-    state.gbuffer_texture_roughness.release();
     state.gbuffer_texture_positions.release();
     state.gbuffer_texture_normal_view.release();
     state.gbuffer_texture_albedo_view.release();
-    state.gbuffer_texture_metallic_view.release();
-    state.gbuffer_texture_roughness_view.release();
     state.gbuffer_texture_positions_view.release();
 
     state.createTextures(size);
@@ -300,10 +270,8 @@ fn createQuadRenderPipeline(state: *Renderer) void {
                 gpu.BindGroupLayout.Entry.texture(0, .{ .fragment = true }, .unfilterable_float, .dimension_2d, false),
                 gpu.BindGroupLayout.Entry.texture(1, .{ .fragment = true }, .unfilterable_float, .dimension_2d, false),
                 gpu.BindGroupLayout.Entry.texture(2, .{ .fragment = true }, .depth, .dimension_2d, false),
-                gpu.BindGroupLayout.Entry.texture(3, .{ .fragment = true }, .unfilterable_float, .dimension_2d, false),
+                gpu.BindGroupLayout.Entry.sampler(3, .{ .fragment = true }, .filtering),
                 gpu.BindGroupLayout.Entry.texture(4, .{ .fragment = true }, .unfilterable_float, .dimension_2d, false),
-                gpu.BindGroupLayout.Entry.sampler(5, .{ .fragment = true }, .filtering),
-                gpu.BindGroupLayout.Entry.texture(6, .{ .fragment = true }, .unfilterable_float, .dimension_2d, false),
             },
         }),
     );
@@ -326,10 +294,8 @@ fn createQuadRenderPipeline(state: *Renderer) void {
                 .{ .binding = 0, .texture_view = state.gbuffer_texture_normal_view, .size = 0 },
                 .{ .binding = 1, .texture_view = state.gbuffer_texture_albedo_view, .size = 0 },
                 .{ .binding = 2, .texture_view = state.depth_view, .size = 0 },
-                .{ .binding = 3, .texture_view = state.gbuffer_texture_metallic_view, .size = 0 },
-                .{ .binding = 4, .texture_view = state.gbuffer_texture_roughness_view, .size = 0 },
-                .{ .binding = 5, .sampler = state.gbuffer_sampler, .size = 0 },
-                .{ .binding = 6, .texture_view = state.gbuffer_texture_positions_view, .size = 0 },
+                .{ .binding = 3, .sampler = state.gbuffer_sampler, .size = 0 },
+                .{ .binding = 4, .texture_view = state.gbuffer_texture_positions_view, .size = 0 },
             },
         }),
     );
@@ -445,22 +411,6 @@ pub fn createTextures(state: *Renderer, size: mach.core.Size) void {
             .render_attachment = true,
         },
     });
-    state.gbuffer_texture_metallic = mach.core.device.createTexture(&.{
-        .size = .{ .width = size.width, .height = size.height },
-        .format = .r8_unorm,
-        .usage = .{
-            .texture_binding = true,
-            .render_attachment = true,
-        },
-    });
-    state.gbuffer_texture_roughness = mach.core.device.createTexture(&.{
-        .size = .{ .width = size.width, .height = size.height },
-        .format = .r8_unorm,
-        .usage = .{
-            .texture_binding = true,
-            .render_attachment = true,
-        },
-    });
     state.gbuffer_texture_positions = mach.core.device.createTexture(&.{
         .size = .{ .width = size.width, .height = size.height },
         .format = .rgba16_float,
@@ -489,22 +439,6 @@ pub fn createTextures(state: *Renderer, size: mach.core.Size) void {
     state.gbuffer_texture_albedo_view = state.gbuffer_texture_albedo.createView(&.{
         .label = "gbuffer_texture_albedo_view",
         .format = .bgra8_unorm,
-        .dimension = .dimension_2d,
-        .array_layer_count = 1,
-        .aspect = .all,
-        .base_array_layer = 0,
-    });
-    state.gbuffer_texture_metallic_view = state.gbuffer_texture_metallic.createView(&.{
-        .label = "gbuffer_texture_metallic_view",
-        .format = .r8_unorm,
-        .dimension = .dimension_2d,
-        .array_layer_count = 1,
-        .aspect = .all,
-        .base_array_layer = 0,
-    });
-    state.gbuffer_texture_roughness_view = state.gbuffer_texture_roughness.createView(&.{
-        .label = "gbuffer_texture_roughness_view",
-        .format = .r8_unorm,
         .dimension = .dimension_2d,
         .array_layer_count = 1,
         .aspect = .all,

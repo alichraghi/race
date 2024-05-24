@@ -101,23 +101,23 @@ pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Li
     }
 
     const obj2 = try object.newEntity();
-    const sponza_model = try Model.initFromFile("assets/samurai.m3d");
+    const sponza_model = try Model.initFromFile("assets/bar.glb");
     try object.set(obj2, .model, sponza_model);
     try object.set(obj2, .transform, .{});
 
     // const obj = try object.newEntity();
     // const obj_model = try Model.initFromFile("assets/cube.m3d");
     // try object.set(obj, .model, obj_model);
-    // try object.set(obj, .transform, .{ .scale = vec3(50, 0.01, 50) });
+    // try object.set(obj, .transform, .{ .scale = vec3(0.1, 0.1, 0.1) });
 
-    // const l = try light.newEntity();
-    // try light.set(l, .position, vec3(2.8, 0.8, -2.7));
-    // try light.set(l, .color, vec4(1, 0, 0, 1));
-    // try light.set(l, .radius, 2);
+    const l = try light.newEntity();
+    try light.set(l, .position, vec3(-10, 3, -4));
+    try light.set(l, .color, vec4(0, 0, 1, 1));
+    try light.set(l, .radius, 2);
 
     const l2 = try light.newEntity();
-    try light.set(l2, .position, vec3(2.8, 0.8, 2.7));
-    try light.set(l2, .color, vec4(1, 1, 0, 1));
+    try light.set(l2, .position, vec3(0, 0.5, 0));
+    try light.set(l2, .color, vec4(1, 1, 1, 1));
     try light.set(l2, .radius, 2);
 
     // Camera
