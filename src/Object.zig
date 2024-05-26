@@ -256,7 +256,8 @@ pub fn renderGBuffer(object: *Mod, renderer: *Renderer.Mod) !void {
                 instance_buffer_offset,
                 &[_]shaders.InstanceData{.{
                     .model = math.transform(instance.translation, instance.rotation, instance.scale),
-                    .model_normal = math.inverse(math.transform(instance.translation, instance.rotation, instance.scale)),
+                    // .model_normal = math.inverse(math.transform(instance.translation, instance.rotation, instance.scale)),
+                    .model_normal = math.transformNormal(instance.rotation, instance.scale),
                 }},
             );
             instance_buffer_offset += @sizeOf(shaders.InstanceData);

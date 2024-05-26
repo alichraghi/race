@@ -73,12 +73,12 @@ fn frag_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
         specular_light += intensity * blinn_term;
     }   
 
-    var color = diffuse_light * albedo + specular_light;
+    var color = diffuse_light * albedo + specular_light * albedo;
 
-    // // HDR tonemapping
-    // color = color / (color + vec3(1.0));
-    // // gamma correct
-    // color = pow(color, vec3(1.0/2.2)); 
+    // HDR tonemapping
+    color = color / (color + vec3(1.0));
+    // Gamma correction
+    color = pow(color, vec3(1.0/2.2)); 
 
     return vec4(color, 1);
 }

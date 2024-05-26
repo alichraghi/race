@@ -1,7 +1,6 @@
 const std = @import("std");
 const mach = @import("mach");
 const M3D = @import("model3d");
-const c = @cImport(@cInclude("cgltf.h"));
 const math = @import("math.zig");
 const Texture = @import("Texture.zig");
 const shaders = @import("shaders.zig");
@@ -46,153 +45,11 @@ pub fn initFromFile(path: []const u8) !Model {
     const data = try file.readToEndAllocOptions(core.allocator, 1024 * 1024 * 1024, null, @alignOf(u8), 0);
     defer core.allocator.free(data);
 
-    const ext = std.fs.path.extension(path);
-    if (std.mem.eql(u8, ext, ".m3d")) {
+    if (std.mem.endsWith(u8, path, ".m3d")) {
         return initFromM3D(data);
-    } else if (std.mem.eql(u8, ext, ".glb")) {
-        return initFromGLTF(data);
     }
 
     return error.UnknownFormat;
-}
-
-pub fn initFromGLTF(data: [:0]const u8) !Model {
-    var gltf: ?*c.cgltf_data = null;
-    var result = c.cgltf_parse(&.{}, data.ptr, data.len, &gltf);
-    try resultToError(result);
-    defer c.cgltf_free(gltf);
-
-    result = c.cgltf_load_buffers(&.{}, gltf, null);
-    try resultToError(result);
-
-    const model: Model = .{
-        .name = "GLB Model",
-        .meshes = try core.allocator.alloc(Mesh, gltf.?.meshes_count),
-        .materials = try core.allocator.alloc(Material, 0), // TODO
-    };
-
-    for (gltf.?.meshes[0..gltf.?.meshes_count], model.meshes) |mesh, *out_mesh| {
-        for (mesh.primitives[0..mesh.primitives_count]) |prim| {
-            const vertices_count: u32 = @as(u32, @intCast(prim.attributes[0].data.*.count));
-            const vertex_buf = core.device.createBuffer(&.{
-                .usage = .{ .vertex = true },
-                .size = @sizeOf(shaders.Vertex) * vertices_count,
-                .mapped_at_creation = .true,
-            });
-            const vertices: []shaders.Vertex = vertex_buf.getMappedRange(shaders.Vertex, 0, vertices_count).?;
-
-            // Attributes.
-            const attributes = prim.attributes[0..prim.attributes_count];
-            for (attributes) |attrib| {
-                const accessor = attrib.data.*;
-                assert(accessor.component_type == c.cgltf_component_type_r_32f);
-
-                const buffer_view = accessor.buffer_view.*;
-                assert(buffer_view.buffer.*.data != null);
-
-                assert(accessor.stride == buffer_view.stride or buffer_view.stride == 0);
-                assert(accessor.stride * accessor.count == buffer_view.size);
-
-                const data_addr = @as([*]const u8, @ptrCast(buffer_view.buffer.*.data)) + buffer_view.offset + accessor.offset;
-
-                if (attrib.type == c.cgltf_attribute_type_position) {
-                    assert(accessor.type == c.cgltf_type_vec3);
-                    const slice = @as([*]const [3]f32, @ptrCast(@alignCast(data_addr)))[0..vertices_count];
-                    for (slice, vertices) |position, *vertex| {
-                        vertex.position = vec3(position[0], position[1], position[2]);
-                    }
-                } else if (attrib.type == c.cgltf_attribute_type_normal) {
-                    assert(accessor.type == c.cgltf_type_vec3);
-                    const slice = @as([*]const [3]f32, @ptrCast(@alignCast(data_addr)))[0..vertices_count];
-                    for (slice, vertices) |normal, *vertex| {
-                        vertex.normal = vec3(normal[0], normal[1], normal[2]);
-                    }
-                } else if (attrib.type == c.cgltf_attribute_type_texcoord) {
-                    assert(accessor.type == c.cgltf_type_vec2);
-                    const slice = @as([*]const [2]f32, @ptrCast(@alignCast(data_addr)))[0..vertices_count];
-                    for (slice, vertices) |uv, *vertex| {
-                        vertex.uv = vec2(uv[0], uv[1]);
-                    }
-                } else if (attrib.type == c.cgltf_attribute_type_tangent) {
-                    assert(accessor.type == c.cgltf_type_vec4);
-                    const slice = @as([*]const [4]f32, @ptrCast(@alignCast(data_addr)))[0..vertices_count];
-                    for (slice, vertices) |tangent, *vertex| {
-                        vertex.tangent = vec4(tangent[0], tangent[1], tangent[2], tangent[3]);
-                    }
-                }
-            }
-
-            vertex_buf.unmap();
-
-            // Indices.
-            var index_buf: ?*gpu.Buffer = null;
-            var indices_count: u32 = 0;
-
-            if (prim.indices != null) {
-                indices_count = @intCast(prim.indices.*.count);
-                index_buf = core.device.createBuffer(&.{
-                    .usage = .{ .index = true },
-                    .size = @sizeOf(u32) * indices_count,
-                    .mapped_at_creation = .true,
-                });
-                const indices: []u32 = index_buf.?.getMappedRange(u32, 0, indices_count).?;
-
-                const accessor = prim.indices.*;
-                const buffer_view = accessor.buffer_view.*;
-
-                assert(accessor.stride == buffer_view.stride or buffer_view.stride == 0);
-                assert(accessor.stride * accessor.count == buffer_view.size);
-                assert(buffer_view.buffer.*.data != null);
-
-                const data_addr = @as([*]const u8, @ptrCast(buffer_view.buffer.*.data)) + buffer_view.offset + accessor.offset;
-
-                if (accessor.stride == 1) {
-                    assert(accessor.component_type == c.cgltf_component_type_r_8u);
-                    const src = @as([*]const u8, @ptrCast(data_addr));
-                    for (src, indices) |index, *out_index| out_index.* = index;
-                } else if (accessor.stride == 2) {
-                    assert(accessor.component_type == c.cgltf_component_type_r_16u);
-                    const src = @as([*]const u16, @ptrCast(@alignCast(data_addr)));
-                    for (src, indices) |index, *out_index| out_index.* = index;
-                } else if (accessor.stride == 4) {
-                    assert(accessor.component_type == c.cgltf_component_type_r_32u);
-                    const src = @as([*]const u32, @ptrCast(@alignCast(data_addr)));
-                    @memcpy(indices, src);
-                } else {
-                    return error.UnknownIndexSize;
-                }
-
-                index_buf.?.unmap();
-            }
-
-            // Finalize Mesh
-            out_mesh.* = .{
-                .material = null, // TODO
-                .vertex_buf = vertex_buf,
-                .index_buf = index_buf,
-                .vertex_count = vertices_count,
-                .index_count = indices_count,
-            };
-        }
-    }
-
-    return model;
-}
-
-fn resultToError(result: c.cgltf_result) !void {
-    switch (result) {
-        c.cgltf_result_success => return,
-        c.cgltf_result_data_too_short => return error.DataTooShort,
-        c.cgltf_result_unknown_format => return error.UnknownFormat,
-        c.cgltf_result_invalid_json => return error.InvalidJson,
-        c.cgltf_result_invalid_gltf => return error.InvalidGltf,
-        c.cgltf_result_invalid_options => return error.InvalidOptions,
-        c.cgltf_result_file_not_found => return error.FileNotFound,
-        c.cgltf_result_io_error => return error.IoError,
-        c.cgltf_result_out_of_memory => return error.OutOfMemory,
-        c.cgltf_result_legacy_gltf => return error.LegacyGltf,
-        else => unreachable,
-    }
 }
 
 // TODO
@@ -255,22 +112,14 @@ pub fn initFromM3D(data: [:0]const u8) !Model {
                     m3d.handle.vertex[position].z,
                 ).mulScalar(m3d.scale());
 
-                if (face.normal[0] != M3D_UNDEF) {
-                    vertex.normal = vec3(
-                        m3d.handle.vertex[normal].x,
-                        m3d.handle.vertex[normal].y,
-                        m3d.handle.vertex[normal].z,
-                    );
-                } else {
-                    vertex.normal = vec3(0.5, 0.5, 1);
-                }
+                vertex.normal = vec3(
+                    m3d.handle.vertex[normal].x,
+                    m3d.handle.vertex[normal].y,
+                    m3d.handle.vertex[normal].z,
+                );
 
-                if (face.texcoord[0] != M3D_UNDEF) {
-                    if (m3d.handle.tmap != null and uv < m3d.handle.numtmap) {
-                        vertex.uv = vec2(m3d.handle.tmap[uv].u, 1 - m3d.handle.tmap[uv].v);
-                    } else {
-                        vertex.uv = vec2(0, 0);
-                    }
+                if (m3d.handle.tmap != null and uv < m3d.handle.numtmap) {
+                    vertex.uv = vec2(m3d.handle.tmap[uv].u, 1 - m3d.handle.tmap[uv].v);
                 } else {
                     vertex.uv = vec2(0, 0);
                 }

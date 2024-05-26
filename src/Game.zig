@@ -101,14 +101,14 @@ pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Li
     }
 
     const obj2 = try object.newEntity();
-    const sponza_model = try Model.initFromFile("assets/bar.glb");
+    const sponza_model = try Model.initFromFile("assets/bar.m3d");
     try object.set(obj2, .model, sponza_model);
     try object.set(obj2, .transform, .{});
 
-    // const obj = try object.newEntity();
-    // const obj_model = try Model.initFromFile("assets/cube.m3d");
-    // try object.set(obj, .model, obj_model);
-    // try object.set(obj, .transform, .{ .scale = vec3(0.1, 0.1, 0.1) });
+    const obj = try object.newEntity();
+    const obj_model = try Model.initFromFile("assets/cube_normals.m3d");
+    try object.set(obj, .model, obj_model);
+    try object.set(obj, .transform, .{ .scale = vec3(0.1, 0.1, 0.1) });
 
     const l = try light.newEntity();
     try light.set(l, .position, vec3(-10, 3, -4));
