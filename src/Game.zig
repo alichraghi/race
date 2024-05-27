@@ -21,32 +21,55 @@ camera_rot: Vec3,
 camera_dir: Vec3,
 camera_front: Vec3,
 
-pub const name = .game;
+pub const name = .app;
 pub const Mod = mach.Mod(Game);
 
-pub const global_events = .{
+pub const systems = .{
     .init = .{ .handler = init },
+    .deinit = .{ .handler = deinit },
     .tick = .{ .handler = tick },
-    // We need to make sure renderer's framebuffer resize event is called before other
-    .rendererFramebufferResize = .{ .handler = fn (mach.core.Size) void },
-    .framebufferResize = .{ .handler = fn (mach.core.Size) void },
-};
-
-pub const local_events = .{
     .processEvents = .{ .handler = processEvents },
+    .initScene = .{ .handler = initScene },
     .tickCamera = .{ .handler = tickCamera },
 };
 
-pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Light.Mod) !void {
-    mach.core.setCursorMode(.disabled);
+pub fn init(
+    game: *Mod,
+    object: *Object.Mod,
+    renderer: *Renderer.Mod,
+    light: *Light.Mod,
+    core: *Core.Mod,
+) !void {
 
     // Init modules
     renderer.init(.{});
     object.init(.{});
     light.init(.{});
-    try renderer.state().init();
-    try object.state().init();
-    try light.state().init(renderer.state());
+    core.schedule(.init);
+    renderer.schedule(.init);
+    light.schedule(.init);
+
+    // Camera
+    const main_camera = Camera{};
+    const camera_rot = vec3(0, math.pi / 2.0, 0); // 90deg
+    const camera_front = math.worldSpaceDirection(camera_rot);
+    const mouse_pos = mach.core.mousePosition();
+
+    game.init(.{
+        .main_camera = main_camera,
+        .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
+        .camera_rot = camera_rot,
+        .camera_dir = vec3(0, 0, 0),
+        .camera_front = camera_front,
+    });
+
+    game.schedule(.initScene);
+
+    core.schedule(.start);
+}
+
+pub fn initScene(object: *Object.Mod, light: *Light.Mod, entities: *mach.Entities.Mod) !void {
+    mach.core.setCursorMode(.disabled);
 
     var prng = std.Random.DefaultPrng.init(12385);
     const random = prng.random();
@@ -100,68 +123,38 @@ pub fn init(game: *Mod, object: *Object.Mod, renderer: *Renderer.Mod, light: *Li
         }
     }
 
-    const obj2 = try object.newEntity();
+    const obj2 = try entities.new();
     const sponza_model = try Model.initFromFile("assets/bar.m3d");
     try object.set(obj2, .model, sponza_model);
     try object.set(obj2, .transform, .{});
 
-    const obj = try object.newEntity();
+    const obj = try entities.new();
     const obj_model = try Model.initFromFile("assets/cube_normals.m3d");
     try object.set(obj, .model, obj_model);
     try object.set(obj, .transform, .{ .scale = vec3(0.1, 0.1, 0.1) });
 
-    const l = try light.newEntity();
+    const l = try entities.new();
     try light.set(l, .position, vec3(-10, 3, -4));
     try light.set(l, .color, vec4(0, 0, 1, 1));
     try light.set(l, .radius, 2);
 
-    const l2 = try light.newEntity();
+    const l2 = try entities.new();
     try light.set(l2, .position, vec3(0, 0.5, 0));
     try light.set(l2, .color, vec4(1, 1, 1, 1));
     try light.set(l2, .radius, 2);
-
-    // Camera
-    const main_camera = Camera{};
-    const camera_rot = vec3(0, math.pi / 2.0, 0); // 90deg
-    const camera_front = math.worldSpaceDirection(camera_rot);
-    const mouse_pos = mach.core.mousePosition();
-
-    game.init(.{
-        .main_camera = main_camera,
-        .prev_mouse_pos = vec3(@floatCast(-mouse_pos.y), @floatCast(mouse_pos.x), 0),
-        .camera_rot = camera_rot,
-        .camera_dir = vec3(0, 0, 0),
-        .camera_front = camera_front,
-    });
 }
 
-pub fn deinit(game: *Mod, object: *Object.Mod) !void {
-    const state: *Game = game.state();
-
-    object.send(.deinit, .{});
-    state.depth_texture.release();
-    state.depth_view.release();
+pub fn deinit(core: *Core.Mod) !void {
+    core.schedule(.deinit);
 }
 
-pub fn tick(game: *Mod, renderer: *Renderer.Mod, object: *Object.Mod, light: *Light.Mod) !void {
+pub fn tick(game: *Mod, renderer: *Renderer.Mod) !void {
     const state: *Game = game.state();
 
-    game.send(.processEvents, .{});
-    game.send(.tickCamera, .{});
-    renderer.send(.record, .{});
+    game.schedule(.processEvents);
+    game.schedule(.tickCamera);
 
-    renderer.send(.beginGBuffer, .{});
-    renderer.send(.writeCamera, .{state.main_camera});
-    renderer.send(.writeLights, .{});
-    object.send(.renderGBuffer, .{});
-    renderer.send(.endGBuffer, .{});
-
-    renderer.send(.beginQuad, .{});
-    renderer.send(.renderQuad, .{});
-    light.send(.render, .{});
-    renderer.send(.endQuad, .{});
-
-    renderer.send(.submit, .{});
+    renderer.scheduleWithArgs(.render, .{state.main_camera});
 }
 
 pub fn tickCamera(game: *Mod) !void {
@@ -190,6 +183,7 @@ pub fn tickCamera(game: *Mod) !void {
 
 pub fn processEvents(game: *Mod, renderer: *Renderer.Mod, core: *Core.Mod) !void {
     const state: *Game = game.state();
+    const renderer_state: *Renderer = renderer.state();
 
     var iter = mach.core.pollEvents();
     while (iter.next()) |event| {
@@ -208,7 +202,7 @@ pub fn processEvents(game: *Mod, renderer: *Renderer.Mod, core: *Core.Mod) !void
                             }
                             break :blk @intFromEnum(current_mode) + 1;
                         };
-                        renderer.send(.writeRenderMode, .{@enumFromInt(new_mode)});
+                        renderer_state.render_mode = @enumFromInt(new_mode);
                     },
                     .escape => mach.core.setCursorMode(.normal),
                     else => {},
@@ -236,10 +230,9 @@ pub fn processEvents(game: *Mod, renderer: *Renderer.Mod, core: *Core.Mod) !void
                 state.camera_front = math.worldSpaceDirection(state.camera_rot);
             },
             .framebuffer_resize => |size| {
-                game.sendGlobal(.rendererFramebufferResize, .{size});
-                game.sendGlobal(.framebufferResize, .{size});
+                renderer.scheduleWithArgs(.framebufferResize, .{size});
             },
-            .close => core.send(.exit, .{}),
+            .close => core.schedule(.exit),
             else => {},
         }
     }

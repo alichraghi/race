@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) !void {
     b.installArtifact(exe);
 
     exe.linkLibrary(model3d_dep.artifact("mach-model3d"));
-    mach.link(b, exe, &exe.root_module);
+    mach.link(b, exe);
     mach.addPaths(&exe.root_module);
 
     const run = b.addRunArtifact(exe);

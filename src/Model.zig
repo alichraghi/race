@@ -16,6 +16,9 @@ const vec4 = math.vec4;
 
 const Model = @This();
 
+pub const name = .model;
+pub const Mod = mach.Mod(Model);
+
 pub const Mesh = struct {
     material: ?u32,
     vertex_buf: *gpu.Buffer,

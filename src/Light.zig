@@ -22,7 +22,8 @@ pub const components = .{
     .radius = .{ .type = f32 },
 };
 
-pub const local_events = .{
+pub const systems = .{
+    .init = .{ .handler = init },
     .render = .{ .handler = render },
 };
 
@@ -33,7 +34,10 @@ bind_group: *gpu.BindGroup = undefined,
 //       and change this to `builtin.mode == .Debug`
 show_points: bool = false,
 
-pub fn init(light: *Light, renderer: *Renderer) !void {
+pub fn init(light: *Mod, renderer: *Renderer.Mod) !void {
+    const state = light.state();
+    const renderer_state = renderer.state();
+
     const shader_module = mach.core.device.createShaderModuleWGSL("light", @embedFile("shaders/light.wgsl"));
     defer shader_module.release();
 
@@ -50,9 +54,9 @@ pub fn init(light: *Light, renderer: *Renderer) !void {
         &gpu.BindGroup.Descriptor.init(.{
             .layout = bind_group_layout,
             .entries = &.{
-                .{ .binding = 0, .buffer = renderer.camera_uniform, .size = @sizeOf(shaders.CameraUniform) },
-                .{ .binding = 1, .buffer = renderer.lights_buffer, .size = @sizeOf(shaders.LightBuffer) },
-                .{ .binding = 2, .texture_view = renderer.depth_view, .size = 0 },
+                .{ .binding = 0, .buffer = renderer_state.camera_uniform, .size = @sizeOf(shaders.CameraUniform) },
+                .{ .binding = 1, .buffer = renderer_state.lights_buffer, .size = @sizeOf(shaders.LightBuffer) },
+                .{ .binding = 2, .texture_view = renderer_state.depth_view, .size = 0 },
             },
         }),
     );
@@ -84,7 +88,7 @@ pub fn init(light: *Light, renderer: *Renderer) !void {
     };
     const pipeline = mach.core.device.createRenderPipeline(&pipeline_descriptor);
 
-    light.* = .{ .pipeline = pipeline, .bind_group = bind_group };
+    state.* = .{ .pipeline = pipeline, .bind_group = bind_group };
 }
 
 pub fn deinit(light: *Mod) !void {
@@ -93,7 +97,7 @@ pub fn deinit(light: *Mod) !void {
     state.bind_group.release();
 }
 
-pub fn render(light: *Mod, renderer: *Renderer.Mod) !void {
+pub fn render(entities: *mach.Entities.Mod, light: *Mod, renderer: *Renderer.Mod) !void {
     const state: *Light = light.state();
     const renderer_state: *Renderer = renderer.state();
 
@@ -103,7 +107,11 @@ pub fn render(light: *Mod, renderer: *Renderer.Mod) !void {
     renderer_state.quad_pass.setBindGroup(0, state.bind_group, &.{});
 
     var instances: u32 = 0;
-    var archetypes_iter = light.entities.query(.{ .all = &.{.{ .light = &.{ .position, .color, .radius } }} });
-    while (archetypes_iter.next()) |archetype| instances += @intCast(archetype.archetype.len);
+    var q = try entities.query(.{
+        .positions = Light.Mod.read(.position),
+        .colors = Light.Mod.read(.color),
+        .radiuses = Light.Mod.read(.radius),
+    });
+    while (q.next()) |v| instances += @intCast(v.len);
     renderer_state.quad_pass.draw(6, instances, 0, 0);
 }

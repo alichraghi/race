@@ -7,10 +7,10 @@ pub const SYSGPUInterface = mach.sysgpu.Impl;
 
 pub const modules = .{
     mach.Core,
+    @import("Game.zig"),
     @import("Renderer.zig"),
     @import("Object.zig"),
     @import("Light.zig"),
-    @import("Game.zig"),
 };
 
 pub fn main() !void {
